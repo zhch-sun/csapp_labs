@@ -1,2 +1,8 @@
 .DS_Store
+others/
+*.o
+*.tar
+# apple debug files
+*.dSYM
 
+clab/qtest
