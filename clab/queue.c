@@ -27,7 +27,7 @@ queue_t *q_new()
     queue_t *q = malloc(sizeof(queue_t));
     /* What if malloc returned NULL? */
     if (q == NULL)  // handle NULL
-      return q;
+        return q;
     q->head = NULL;
     return q;
 }
@@ -60,12 +60,11 @@ bool q_insert_head(queue_t *q, char *s)
     /* What if either call to malloc returns NULL? */
     newh->next = q->head;
 
-    news = malloc(strlen(s));
-    if (news == NULL)
-      return false;
-    news = strcpy(news, s);
-    if (news == NULL)
-      return false;
+    // Note must +1!
+    if ((news = malloc(strlen(s) + 1)) == NULL)
+        return false;
+    if (strcpy(news, s) == NULL)
+        return false;
     newh->value = news;
 
     q->head = newh;
@@ -98,7 +97,16 @@ bool q_insert_tail(queue_t *q, char *s)
 bool q_remove_head(queue_t *q, char *sp, size_t bufsize)
 {
     /* You need to fix up this code. */
+    if (q == NULL || q->head == NULL)
+        return false;
+    list_ele_t *tmp = q->head;
     q->head = q->head->next;
+
+    if (sp != NULL)
+        strncpy(sp, tmp->value, bufsize - 1);
+    *(sp + bufsize - 1) = '\0';
+    free(tmp->value);
+    free(tmp);
     return true;
 }
 
