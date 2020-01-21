@@ -29,6 +29,7 @@ queue_t *q_new()
     if (q == NULL)  // handle NULL
         return q;
     q->head = NULL;
+    q->len = 0;
     return q;
 }
 
@@ -53,13 +54,10 @@ bool q_insert_head(queue_t *q, char *s)
     list_ele_t *newh;
     char *news;
     /* What should you do if the q is NULL? */
-    newh = malloc(sizeof(list_ele_t));
-    if (newh == NULL)
-      return false;
-    /* Don't forget to allocate space for the string and copy it */
-    /* What if either call to malloc returns NULL? */
-    newh->next = q->head;
-
+    if (q == NULL)
+        return false;
+    if ((newh = malloc(sizeof(list_ele_t))) == NULL)
+        return false;
     // Note must +1!
     if ((news = malloc(strlen(s) + 1)) == NULL)
         return false;
@@ -67,7 +65,12 @@ bool q_insert_head(queue_t *q, char *s)
         return false;
     newh->value = news;
 
+    /* Don't forget to allocate space for the string and copy it */
+    /* What if either call to malloc returns NULL? */
+    newh->next = q->head;
     q->head = newh;
+    if (q->head->next == NULL)
+        q->tail = q->head;
     return true;
 }
 
@@ -83,7 +86,22 @@ bool q_insert_tail(queue_t *q, char *s)
 {
     /* You need to write the complete code for this function */
     /* Remember: It should operate in O(1) time */
-    return false;
+    if (q == NULL)
+        return false;
+    list_ele_t *newt;
+    char *news;
+    if ((newt = malloc(sizeof(list_ele_t))) == NULL)
+        return false;
+    // Note must +1!
+    if ((news = malloc(strlen(s) + 1)) == NULL)
+        return false;
+    if (strcpy(news, s) == NULL)
+        return false;
+    newt->value = news;
+    newt->next = NULL;
+    q->tail->next = newt;
+    q->tail = newt;
+    return true;
 }
 
 /*
@@ -107,6 +125,8 @@ bool q_remove_head(queue_t *q, char *sp, size_t bufsize)
     *(sp + bufsize - 1) = '\0';
     free(tmp->value);
     free(tmp);
+    if (q->head == NULL)
+        q->tail = NULL;
     return true;
 }
 
@@ -131,5 +151,14 @@ int q_size(queue_t *q)
 void q_reverse(queue_t *q)
 {
     /* You need to write the code for this function */
+    if (q == NULL || q->head == NULL)
+        return;
+    q->tail = q->head;
+    while (q->tail->next != NULL) {
+        list_ele_t *tmp = q->tail->next;
+        q->tail->next = tmp->next;
+        tmp->next = q->head;
+        q->head = tmp;
+    }
 }
 
