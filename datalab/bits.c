@@ -143,7 +143,11 @@ NOTES:
  *   Rating: 1
  */
 int bitXor(int x, int y) {
-  return 2;
+//   int x1y0 = ~y&x;
+//   int x0y1 = ~x&y;
+  int x0y0 = ~x&~y;
+  int x1y1 = x&y;
+  return ~x0y0 & ~x1y1;
 }
 /* 
  * tmin - return minimum two's complement integer 
@@ -152,9 +156,7 @@ int bitXor(int x, int y) {
  *   Rating: 1
  */
 int tmin(void) {
-
-  return 2;
-
+  return 0x1<<31;
 }
 //2
 /*
@@ -165,7 +167,10 @@ int tmin(void) {
  *   Rating: 1
  */
 int isTmax(int x) {
-  return 2;
+  /* ~x==x+1 and x==y is equal to !(x^y) !
+    then rule out -1 using !!y */
+  int y = x + 1;
+  return !(~x^y) & !!y;
 }
 /* 
  * allOddBits - return 1 if all odd-numbered bits in word set to 1
@@ -176,7 +181,15 @@ int isTmax(int x) {
  *   Rating: 2
  */
 int allOddBits(int x) {
-  return 2;
+  /* two answer. i can use 8 bit constants*/
+  /*
+  int mask = 0xAA;
+  int ans = (mask & x) & (mask & (x >> 8)) & \
+            (mask & (x >> 16)) & (mask & (x >> 24));
+  */
+  int half_mask = 0xAA | 0xAA << 8;
+  int mask = half_mask | half_mask << 16;
+  return !((mask & x) ^ mask);
 }
 /* 
  * negate - return -x 
@@ -186,7 +199,7 @@ int allOddBits(int x) {
  *   Rating: 2
  */
 int negate(int x) {
-  return 2;
+  return ~x + 1;
 }
 //3
 /* 
@@ -199,7 +212,10 @@ int negate(int x) {
  *   Rating: 3
  */
 int isAsciiDigit(int x) {
-  return 2;
+  int left = !((x >> 4) ^ 3);
+  int mid = !(x & 8);
+  int right = !(x & 7) | !((x & 7) ^ 1);
+  return left & (mid | right);
 }
 /* 
  * conditional - same as x ? y : z 
@@ -209,7 +225,9 @@ int isAsciiDigit(int x) {
  *   Rating: 3
  */
 int conditional(int x, int y, int z) {
-  return 2;
+  /* x==0 mask all 0, x!=0 mask all 1*/
+  int mask = ~0 + !x;  // use ~0 to obtain all 1!
+  return (mask & y) | (~mask & z);
 }
 /* 
  * isLessOrEqual - if x <= y  then return 1, else return 0 
@@ -219,7 +237,12 @@ int conditional(int x, int y, int z) {
  *   Rating: 3
  */
 int isLessOrEqual(int x, int y) {
-  return 2;
+  /* use -x = ~x + 1. 
+  divide and conquer because of overflow. xpyn and xnyp*/
+  int ans = y + ~x + 1;
+  int xs = (x >> 31) & 1;  // better than x & (1 << 31)
+  int ys = (y >> 31) & 1;
+  return (xs & !ys) | (!(ans >> 31 & 1) & !(xs ^ ys));
 }
 //4
 /* 
@@ -231,8 +254,12 @@ int isLessOrEqual(int x, int y) {
  *   Rating: 4 
  */
 int logicalNeg(int x) {
-  return 2;
+  int y = ~x + 1;
+  int sx = (x >> 31) & 1;
+  int sy = (y >> 31) & 1;
+  return 2 + ~(sx | sy);  // WoW..
 }
+
 /* howManyBits - return the minimum number of bits required to represent x in
  *             two's complement
  *  Examples: howManyBits(12) = 5
@@ -246,7 +273,17 @@ int logicalNeg(int x) {
  *  Rating: 4
  */
 int howManyBits(int x) {
-  return 0;
+  /* tmp = x>=0 ? x : ~x. then find first 1 of tmp failed.
+     must use x ^ (x << 1) */
+  int tmp = x ^ (x << 1);
+  int n = 0;
+  int mask = ~0;
+  n += (!!((mask << (n +16)) & tmp)) << 4;
+  n += (!!((mask << (n + 8)) & tmp)) << 3;
+  n += (!!((mask << (n + 4)) & tmp)) << 2;
+  n += (!!((mask << (n + 2)) & tmp)) << 1;
+  n += (!!((mask << (n + 1)) & tmp));
+  return n + 1;
 }
 //float
 /* 
