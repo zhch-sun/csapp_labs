@@ -298,7 +298,15 @@ int howManyBits(int x) {
  *   Rating: 4
  */
 unsigned floatScale2(unsigned uf) {
-  return 2;
+  int sign = (uf >> 31) & 1;
+  int expo = (uf >> 23) & 0xff;
+  int frac = uf & 0x7fffff;
+  if (expo == 0xff)  // nan or infini
+    return uf;
+  else if (expo)  // norm
+    return sign << 31 | (expo + 1) << 23 | frac;
+  else  // denorm
+    return sign << 31 | expo << 23 | frac << 1;
 }
 /* 
  * floatFloat2Int - Return bit-level equivalent of expression (int) f
@@ -313,7 +321,27 @@ unsigned floatScale2(unsigned uf) {
  *   Rating: 4
  */
 int floatFloat2Int(unsigned uf) {
-  return 2;
+  int sign = (uf >> 31) & 1;
+  int expo = (uf >> 23) & 0xff;
+  int frac = uf & 0x7fffff;
+  int shift = expo - 0x7f - 23;
+  int tmp;
+  // printf("input %x\n", uf);
+  // printf("%x %x %x\n", sign, expo, frac);
+  if (expo - 0x7f > 31)  // nan or infini
+    return 0x80000000u;
+  else if (expo < 0x7f)  // denorm and <1
+    return 0;
+  else {  // norm
+    frac = (1 << 23) | frac;
+    if (shift < 0) 
+      tmp =  frac >> -shift;
+    else 
+      tmp = frac << shift;
+    if (sign)
+      tmp = ~tmp + 1;
+    return tmp;
+  }
 }
 /* 
  * floatPower2 - Return bit-level equivalent of the expression 2.0^x
@@ -329,5 +357,19 @@ int floatFloat2Int(unsigned uf) {
  *   Rating: 4
  */
 unsigned floatPower2(int x) {
-    return 2;
+  int sign = (x >> 31) & 1;
+  int expo = (x & 0xff) + 0x7f;  
+  if (x == 0x80000000)
+    return 0;
+  if (sign)
+    x = ~x + 1;
+  if (x >> 7){
+    if (!sign)
+      return sign << 31 | 0xff << 23;
+    else
+      return 0;
+  }
+  // printf("input: %d\n", x);
+  // printf("%x %x\n", sign, expo);
+  return sign << 31 | expo << 23;
 }
