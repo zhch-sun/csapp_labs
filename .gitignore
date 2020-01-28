@@ -2,6 +2,7 @@
 others/
 *.o
 *.tar
+.*.swp
 # apple debug files
 *.dSYM
 
