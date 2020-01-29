@@ -470,7 +470,7 @@ Disassembly of section .text:
   401062:	53                   	push   %rbx
   401063:	48 83 ec 20          	sub    $0x20,%rsp
   401067:	48 89 fb             	mov    %rdi,%rbx
-  40106a:	64 48 8b 04 25 28 00 	mov    %fs:0x28,%rax               # don't know?
+  40106a:	64 48 8b 04 25 28 00 	mov    %fs:0x28,%rax               # guard value
   401071:	00 00 
   401073:	48 89 44 24 18       	mov    %rax,0x18(%rsp)             # overflow?
   401078:	31 c0                	xor    %eax,%eax                   # %eax=0
@@ -479,7 +479,7 @@ Disassembly of section .text:
   401082:	74 4e                	je     4010d2 <phase_5+0x70>
   401084:	e8 b1 03 00 00       	callq  40143a <explode_bomb>
   401089:	eb 47                	jmp    4010d2 <phase_5+0x70>
-  40108b:	0f b6 0c 03          	movzbl (%rbx,%rax,1),%ecx
+  40108b:	0f b6 0c 03          	movzbl (%rbx,%rax,1),%ecx          # byte2long word
   40108f:	88 0c 24             	mov    %cl,(%rsp)
   401092:	48 8b 14 24          	mov    (%rsp),%rdx
   401096:	83 e2 0f             	and    $0xf,%edx
@@ -489,8 +489,8 @@ Disassembly of section .text:
   4010a8:	48 83 f8 06          	cmp    $0x6,%rax
   4010ac:	75 dd                	jne    40108b <phase_5+0x29>
   4010ae:	c6 44 24 16 00       	movb   $0x0,0x16(%rsp)
-  4010b3:	be 5e 24 40 00       	mov    $0x40245e,%esi
-  4010b8:	48 8d 7c 24 10       	lea    0x10(%rsp),%rdi
+  4010b3:	be 5e 24 40 00       	mov    $0x40245e,%esi              # param2 flyers
+  4010b8:	48 8d 7c 24 10       	lea    0x10(%rsp),%rdi             # param1 rsp+10
   4010bd:	e8 76 02 00 00       	callq  401338 <strings_not_equal>
   4010c2:	85 c0                	test   %eax,%eax
   4010c4:	74 13                	je     4010d9 <phase_5+0x77>
@@ -519,60 +519,60 @@ Disassembly of section .text:
   401103:	48 89 e6             	mov    %rsp,%rsi
   401106:	e8 51 03 00 00       	callq  40145c <read_six_numbers>
   40110b:	49 89 e6             	mov    %rsp,%r14
-  40110e:	41 bc 00 00 00 00    	mov    $0x0,%r12d
+  40110e:	41 bc 00 00 00 00    	mov    $0x0,%r12d             # the loop variable i?
   401114:	4c 89 ed             	mov    %r13,%rbp
-  401117:	41 8b 45 00          	mov    0x0(%r13),%eax
-  40111b:	83 e8 01             	sub    $0x1,%eax
+  401117:	41 8b 45 00          	mov    0x0(%r13),%eax         # num1 to %eax
+  40111b:	83 e8 01             	sub    $0x1,%eax              
   40111e:	83 f8 05             	cmp    $0x5,%eax
-  401121:	76 05                	jbe    401128 <phase_6+0x34>
+  401121:	76 05                	jbe    401128 <phase_6+0x34>  # num1 - 1 <= 5
   401123:	e8 12 03 00 00       	callq  40143a <explode_bomb>
-  401128:	41 83 c4 01          	add    $0x1,%r12d
+  401128:	41 83 c4 01          	add    $0x1,%r12d             # 0 + 1 = 1
   40112c:	41 83 fc 06          	cmp    $0x6,%r12d
-  401130:	74 21                	je     401153 <phase_6+0x5f>
-  401132:	44 89 e3             	mov    %r12d,%ebx
+  401130:	74 21                	je     401153 <phase_6+0x5f>  # i == 6, break
+  401132:	44 89 e3             	mov    %r12d,%ebx             # r12d = 1
   401135:	48 63 c3             	movslq %ebx,%rax
-  401138:	8b 04 84             	mov    (%rsp,%rax,4),%eax
+  401138:	8b 04 84             	mov    (%rsp,%rax,4),%eax     # num2 
   40113b:	39 45 00             	cmp    %eax,0x0(%rbp)
-  40113e:	75 05                	jne    401145 <phase_6+0x51>
+  40113e:	75 05                	jne    401145 <phase_6+0x51>  # num2 != num1
   401140:	e8 f5 02 00 00       	callq  40143a <explode_bomb>
-  401145:	83 c3 01             	add    $0x1,%ebx
+  401145:	83 c3 01             	add    $0x1,%ebx              # ebx = 2
   401148:	83 fb 05             	cmp    $0x5,%ebx
   40114b:	7e e8                	jle    401135 <phase_6+0x41>
-  40114d:	49 83 c5 04          	add    $0x4,%r13
+  40114d:	49 83 c5 04          	add    $0x4,%r13              # r13 -> num2
   401151:	eb c1                	jmp    401114 <phase_6+0x20>
-  401153:	48 8d 74 24 18       	lea    0x18(%rsp),%rsi
-  401158:	4c 89 f0             	mov    %r14,%rax
+  401153:	48 8d 74 24 18       	lea    0x18(%rsp),%rsi        # next to array
+  401158:	4c 89 f0             	mov    %r14,%rax              # array start
   40115b:	b9 07 00 00 00       	mov    $0x7,%ecx
   401160:	89 ca                	mov    %ecx,%edx
   401162:	2b 10                	sub    (%rax),%edx
-  401164:	89 10                	mov    %edx,(%rax)
+  401164:	89 10                	mov    %edx,(%rax)            # num1 = 7 - num1
   401166:	48 83 c0 04          	add    $0x4,%rax
   40116a:	48 39 f0             	cmp    %rsi,%rax
   40116d:	75 f1                	jne    401160 <phase_6+0x6c>
-  40116f:	be 00 00 00 00       	mov    $0x0,%esi
+  40116f:	be 00 00 00 00       	mov    $0x0,%esi              # new block
   401174:	eb 21                	jmp    401197 <phase_6+0xa3>
-  401176:	48 8b 52 08          	mov    0x8(%rdx),%rdx
+  401176:	48 8b 52 08          	mov    0x8(%rdx),%rdx         # p = *(p+8)!!
   40117a:	83 c0 01             	add    $0x1,%eax
   40117d:	39 c8                	cmp    %ecx,%eax
   40117f:	75 f5                	jne    401176 <phase_6+0x82>
   401181:	eb 05                	jmp    401188 <phase_6+0x94>
   401183:	ba d0 32 60 00       	mov    $0x6032d0,%edx
-  401188:	48 89 54 74 20       	mov    %rdx,0x20(%rsp,%rsi,2)
+  401188:	48 89 54 74 20       	mov    %rdx,0x20(%rsp,%rsi,2) # put in memory start from 0x20
   40118d:	48 83 c6 04          	add    $0x4,%rsi
   401191:	48 83 fe 18          	cmp    $0x18,%rsi
   401195:	74 14                	je     4011ab <phase_6+0xb7>
   401197:	8b 0c 34             	mov    (%rsp,%rsi,1),%ecx
   40119a:	83 f9 01             	cmp    $0x1,%ecx
-  40119d:	7e e4                	jle    401183 <phase_6+0x8f>
+  40119d:	7e e4                	jle    401183 <phase_6+0x8f>  # if num1 <= 1
   40119f:	b8 01 00 00 00       	mov    $0x1,%eax
   4011a4:	ba d0 32 60 00       	mov    $0x6032d0,%edx
   4011a9:	eb cb                	jmp    401176 <phase_6+0x82>
-  4011ab:	48 8b 5c 24 20       	mov    0x20(%rsp),%rbx
-  4011b0:	48 8d 44 24 28       	lea    0x28(%rsp),%rax
-  4011b5:	48 8d 74 24 50       	lea    0x50(%rsp),%rsi
-  4011ba:	48 89 d9             	mov    %rbx,%rcx
-  4011bd:	48 8b 10             	mov    (%rax),%rdx
-  4011c0:	48 89 51 08          	mov    %rdx,0x8(%rcx)
+  4011ab:	48 8b 5c 24 20       	mov    0x20(%rsp),%rbx        # new block; pointer of node1
+  4011b0:	48 8d 44 24 28       	lea    0x28(%rsp),%rax        # p of p to node2
+  4011b5:	48 8d 74 24 50       	lea    0x50(%rsp),%rsi        # rsi: end of loop
+  4011ba:	48 89 d9             	mov    %rbx,%rcx              # pointer to node1
+  4011bd:	48 8b 10             	mov    (%rax),%rdx            # pointer to node2
+  4011c0:	48 89 51 08          	mov    %rdx,0x8(%rcx)         # node1.next = node2   
   4011c4:	48 83 c0 08          	add    $0x8,%rax
   4011c8:	48 39 f0             	cmp    %rsi,%rax
   4011cb:	74 05                	je     4011d2 <phase_6+0xde>
@@ -580,10 +580,10 @@ Disassembly of section .text:
   4011d0:	eb eb                	jmp    4011bd <phase_6+0xc9>
   4011d2:	48 c7 42 08 00 00 00 	movq   $0x0,0x8(%rdx)
   4011d9:	00 
-  4011da:	bd 05 00 00 00       	mov    $0x5,%ebp
-  4011df:	48 8b 43 08          	mov    0x8(%rbx),%rax
-  4011e3:	8b 00                	mov    (%rax),%eax
-  4011e5:	39 03                	cmp    %eax,(%rbx)
+  4011da:	bd 05 00 00 00       	mov    $0x5,%ebp               # new block
+  4011df:	48 8b 43 08          	mov    0x8(%rbx),%rax  # *p
+  4011e3:	8b 00                	mov    (%rax),%eax     # **p!!!
+  4011e5:	39 03                	cmp    %eax,(%rbx)     # rbx should >= rbx+8
   4011e7:	7d 05                	jge    4011ee <phase_6+0xfa>
   4011e9:	e8 4c 02 00 00       	callq  40143a <explode_bomb>
   4011ee:	48 8b 5b 08          	mov    0x8(%rbx),%rbx
@@ -894,7 +894,7 @@ Disassembly of section .text:
   4015c8:	64 48 8b 04 25 28 00 	mov    %fs:0x28,%rax
   4015cf:	00 00 
   4015d1:	48 89 44 24 68       	mov    %rax,0x68(%rsp)
-  4015d6:	31 c0                	xor    %eax,%eax
+  4015d6:	31 c0                	xor    %eax,%eax                  # rip是PC
   4015d8:	83 3d 81 21 20 00 06 	cmpl   $0x6,0x202181(%rip)        # 603760 <num_input_strings>
   4015df:	75 5e                	jne    40163f <phase_defused+0x7b>
   4015e1:	4c 8d 44 24 10       	lea    0x10(%rsp),%r8
