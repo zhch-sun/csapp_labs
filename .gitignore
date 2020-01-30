@@ -6,7 +6,10 @@ others/
 # apple debug files
 *.dSYM
 
-clab/qtest
-datalab/btest
-datalab/fshow
-datalab/ishow
+1_clab/qtest
+2_datalab/btest
+2_datalab/fshow
+2_datalab/ishow
+
+4_attacklab/try*.txt
+
