@@ -852,7 +852,7 @@ Disassembly of section .text:
   4018ba:	b8 00 00 00 00       	mov    $0x0,%eax
   4018bf:	e8 ac f5 ff ff       	callq  400e70 <__sprintf_chk@plt>
   4018c4:	ba 09 00 00 00       	mov    $0x9,%edx
-  4018c9:	48 89 de             	mov    %rbx,%rsi
+  4018c9:	48 89 de            	mov    %rbx,%rsi
   4018cc:	48 89 ef             	mov    %rbp,%rdi
   4018cf:	e8 cc f3 ff ff       	callq  400ca0 <strncmp@plt>
   4018d4:	85 c0                	test   %eax,%eax

