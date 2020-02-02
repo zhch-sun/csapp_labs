@@ -14,7 +14,76 @@ typedef struct cacheLine cline_t, *cline_p;
 struct cacheLine {
     bool valid;
     unsigned int tag;  // must unsigned for logical shift
+    cline_p prev;
+    cline_p next;
 };
+
+typedef struct doubleLinkedList dlist_t, *dlist_p;
+struct doubleLinkedList {
+    int count;
+    cline_p head;  // most recently
+    cline_p tail;
+};
+
+dlist_p dlistInitial(int size) {
+    dlist_p ptr = (dlist_p) malloc(sizeof(dlist_t));
+    ptr->count = size;
+    ptr->head = (cline_p) malloc(sizeof(cline_t));
+    ptr->tail = (cline_p) malloc(sizeof(cline_t));
+    ptr->head->next = ptr->tail;
+    ptr->tail->prev = ptr->head;
+    cline_p p = ptr->head, n = ptr->tail;
+    for (int i = 0; i < size; ++i) {
+        cline_p node = (cline_p) malloc(sizeof(cline_t));
+        node->valid = false;
+        node->prev = p, node->next = n;
+        p->next = node, n->prev = node;
+        p = node;  // n is the invariant
+    }
+    return ptr;
+}
+
+void dlistMove2Head(dlist_p ptr, cline_p cur) {
+    if (cur == ptr->head->next)
+        return;
+    cline_p p , n;
+    p = cur->prev, n = cur->next;
+    p->next = n, n->prev = p;
+    p = ptr->head, n = ptr->head->next;
+    p->next = cur, n->prev = cur;
+    cur->prev = p, cur->next = n;
+}
+
+int dlistFind(dlist_p ptr, int tag) {
+    cline_p cur = ptr->head;
+    while (cur->next != ptr->tail) {
+        cur = cur->next;
+        if (!cur->valid) {
+            cur->valid = true;
+            cur->tag = tag;
+            dlistMove2Head(ptr, cur);
+            return 1;  // miss but not evict
+        }
+        if (cur->tag == tag) {
+            dlistMove2Head(ptr, cur);
+            return 0;  // hit
+        }
+    }
+    cur->tag = tag;
+    dlistMove2Head(ptr, cur);
+    return 2;  // miss and evict
+}
+
+void dlistFree(dlist_p ptr) {
+    cline_p cur = ptr->head;
+    cline_p next = cur->next;
+    for (int i = 0; i < ptr->count; ++i) {
+        cur = next, next = next->next;
+        free(cur);
+    }
+    free(ptr->head), free(ptr->tail);
+    free(ptr);
+}
 
 static void usage(char *cmd) {
     printf("Usage: %s [-hv] -s <num> -E <num> -b <num> -t <file>\n",  cmd);
@@ -75,23 +144,22 @@ int main(int argc, char* argv[])
         printf("no such file");
         return 1;
     }
-
-    cline_p *cache_array;  // array of pointers
+    
+    dlist_p *cache_array;  // array of pointers
     int set_len = 1 << s;
     int t = 64 - s - b;
-    cache_array = (cline_p*) malloc(sizeof(cline_p) * set_len);
+    cache_array = (dlist_p*) malloc(sizeof(dlist_p) * set_len);
     for (int i = 0; i < set_len; ++i){
-        cache_array[i] = (cline_p) malloc(sizeof(cline_t));
-        cache_array[i]->valid = false;
-        cache_array[i]->tag = 0;
-    }
+        cache_array[i] = dlistInitial(E);
+    } 
 
     /************** running ***************/
     char line[50], instruct, message[20];
-    cline_p ptr;
+    dlist_p ptr;
     unsigned int addr, block;
     unsigned int tag, set;
     int hit = 0, miss = 0, evict = 0;
+    int flag;
     while (fgets(line, 50, fp) != NULL) {
         if (line[0] == 'I')
             continue;
@@ -100,19 +168,17 @@ int main(int argc, char* argv[])
         tag = addr >> (s + b);
         set = (addr << t) >> (t + b);
         ptr = cache_array[set];
-        if (ptr->valid && tag == ptr->tag) {
+        flag = dlistFind(ptr, tag);
+        if (flag == 0) {
             update(&hit, message, "hit");
             if (instruct == 'M') {
                 update(&hit, message, "hit");
             }
         }
         else {
-            ptr->tag = tag;
             update(&miss, message, "miss");            
-            if (ptr->valid)
+            if (flag == 2)
                 update(&evict, message, "eviction");                       
-            else 
-                ptr->valid = true;
             if (instruct == 'M') 
                 update(&hit, message, "hit");
         }
@@ -121,8 +187,6 @@ int main(int argc, char* argv[])
             printf("%c %d,%d%s\n", instruct, addr, block, message);
         }
     }
-    if (verbose)
-        printf("s: %d E: %d b: %d t: %s\n", s, E, b, file_name);
     printSummary(hit, miss, evict);
 
     /**************   clean   ***************/
