@@ -27,6 +27,12 @@ static void usage(char *cmd) {
     exit(0);
 }
 
+void update(int * count, char * dst, char * src) {
+    ++*count;
+    strncat(dst, " ", 20);
+    strncat(dst, src, 20);
+}
+
 int main(int argc, char* argv[])
 {  
     /************** parse input ***************/
@@ -95,29 +101,22 @@ int main(int argc, char* argv[])
         set = (addr << t) >> (t + b);
         ptr = cache_array[set];
         if (ptr->valid && tag == ptr->tag) {
-            hit ++;
-            strncat(message, " hit", 20);
+            update(&hit, message, "hit");
             if (instruct == 'M') {
-                hit++;
-                strncat(message, " hit", 20);
+                update(&hit, message, "hit");
             }
         }
         else {
             ptr->tag = tag;
-            miss++;
-            strncat(message, " miss", 20);
-            if (ptr->valid) {
-                evict++;
-                strncat(message, " eviction", 20);                
-            }
-            else ptr->valid = true;
-            if (instruct == 'M') {
-                hit++;
-                strncat(message, " hit", 20);
-            }  
+            update(&miss, message, "miss");            
+            if (ptr->valid)
+                update(&evict, message, "eviction");                       
+            else 
+                ptr->valid = true;
+            if (instruct == 'M') 
+                update(&hit, message, "hit");
         }
         if (verbose) {
-            // printf("%s", line);
             // printf("%x, %d, %d\n", addr, tag, set);
             printf("%c %d,%d%s\n", instruct, addr, block, message);
         }
