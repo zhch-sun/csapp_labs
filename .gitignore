@@ -1,3 +1,4 @@
+.vscode/
 .DS_Store
 others/
 *.o
@@ -5,6 +6,7 @@ others/
 .*.swp
 # apple debug files
 *.dSYM
+*handin.tar
 
 1_clab/qtest
 2_datalab/btest
@@ -13,4 +15,7 @@ others/
 
 4_attacklab/try*.txt
 4_attacklab/input.txt
+
+5_cachelab/.csim_results
+5_cachelab/csim
 
