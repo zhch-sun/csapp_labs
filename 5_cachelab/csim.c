@@ -94,34 +94,27 @@ int main(int argc, char* argv[])
         tag = addr >> (s + b);
         set = (addr << t) >> (t + b);
         ptr = cache_array[set];
-        if (!(ptr->valid)) {
-            ptr->valid = true;
-            ptr->tag = tag;
-            miss++;
-            strncat(message, " miss", 20);
-            if (instruct == 'M') {
-                strncat(message, " hit", 20);
-                hit++;
-            }
-        }
-        else if (tag == ptr->tag) {
-            hit++;
+        if (ptr->valid && tag == ptr->tag) {
+            hit ++;
             strncat(message, " hit", 20);
             if (instruct == 'M') {
                 hit++;
                 strncat(message, " hit", 20);
             }
-        } 
+        }
         else {
+            ptr->tag = tag;
             miss++;
             strncat(message, " miss", 20);
-            evict++;
-            strncat(message, " eviction", 20);
-            ptr->tag = tag;
+            if (ptr->valid) {
+                evict++;
+                strncat(message, " eviction", 20);                
+            }
+            else ptr->valid = true;
             if (instruct == 'M') {
                 hit++;
                 strncat(message, " hit", 20);
-            }            
+            }  
         }
         if (verbose) {
             // printf("%s", line);
@@ -129,8 +122,8 @@ int main(int argc, char* argv[])
             printf("%c %d,%d%s\n", instruct, addr, block, message);
         }
     }
-    
-    printf("s: %d E: %d b: %d t: %s\n", s, E, b, file_name);
+    if (verbose)
+        printf("s: %d E: %d b: %d t: %s\n", s, E, b, file_name);
     printSummary(hit, miss, evict);
 
     /**************   clean   ***************/
