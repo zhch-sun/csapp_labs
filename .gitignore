@@ -20,5 +20,8 @@ others/
 5_cachelab/csim
 5_cachelab/test-trans
 5_cachelab/tracegen
+5_cachelab/.marker
+5_cachelab/.marker
+5_cachelab/trace.*
 
 
