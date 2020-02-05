@@ -107,7 +107,7 @@ int main(int argc, char* argv[])
     /************** parse input ***************/
     char buf[BUFSIZE];
     char *file_name = NULL;
-    int s, E, b;
+    int s, E, b;  // should've put in a struct. 
     int c;
     while ((c = getopt(argc, argv, "hvs:E:b:t:")) != -1) {
         switch(c) {
