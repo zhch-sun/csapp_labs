@@ -24,4 +24,4 @@ others/
 5_cachelab/.marker
 5_cachelab/trace.*
 
-
+6_malloclab/mdriver
