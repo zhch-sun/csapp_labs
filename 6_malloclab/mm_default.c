@@ -39,7 +39,7 @@ team_t team = {
 #define ALIGNMENT 8
 
 /* rounds up to the nearest multiple of ALIGNMENT */
-// 7 can only be used in align 8? and better use >>?
+// 7 can only be used in align 8
 #define ALIGN(size) (((size) + (ALIGNMENT-1)) & ~0x7)
 
 /* the size of type size_t */
