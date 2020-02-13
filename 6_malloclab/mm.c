@@ -16,6 +16,7 @@
 #include <string.h>
 
 #include "mm.h"
+#include "config.h"
 #include "memlib.h"
 
 /*********************************************************
@@ -35,41 +36,101 @@ team_t team = {
     ""
 };
 
-#define DEBUG
+/*---------------       macros       ---------------*/
 #ifdef DEBUG
 #define DBG_PRINTF(...) fprintf(stderr, __VA_ARGS__)
 #define CHECKHEAP(verbose) mm_check(verbose)
+#define MALLOC_ADD ++malloc_count
+#define FREE_ADD ++free_count
+#define REALLOC_ADD ++realloc_count
+static int malloc_count;
+static int free_count;
+static int realloc_count;
+
 #else
 #define DBG_PRINTF(...)
 #define CHECKHEAP(verbose)
+#define MALLOC_ADD 
+#define FREE_ADD
+#define REALLOC_ADD
 #endif
 
-/*---------------       macros       ---------------*/
 #define WSIZE 4
 #define DSIZE 8
 #define CHUNKSIZE (1 << 12)
 #define ALIGN(size) (((size) + (DSIZE-1)) & ~0x7)
 #define MAX(a, b) ((a) > (b) ? (a) : (b))
 
+// core is PUT and GET, all pointer dereference
 #define PACK(size, alloc) ((size) | (alloc))
-#define PUT(p, val)  (*(unsigned int*)(p) = (val))
+#define PUT(p, val)  (*(unsigned int*)(p) = (unsigned int)(val))
 #define GET(p)       (*(unsigned int*)(p))
 #define GET_SIZE(p)  (GET(p) & ~0x7)
 #define GET_ALLOC(p) (GET(p) & 0x1)
+#define GET_BLOCKP(p)  ((char *)(p) + WSIZE)
 
 #define HDRP(bp) ((char *)(bp) - WSIZE) // header p
 #define FTRP(bp) ((char *)(bp) + GET_SIZE(HDRP(bp)) - DSIZE)
 #define NEXT_BLKP(bp) ((char *)(bp) + GET_SIZE((char *)(bp) - WSIZE))
 #define PREV_BLKP(bp) ((char *)(bp) - GET_SIZE((char *)(bp) - DSIZE))
 
+#define SECT_NEXT(p) ((char *)(p) + WSIZE)
+#define SECT_PREV(p) ((char *)(p) + DSIZE)
+#define NEXT_FREP(p) ((char *)GET(SECT_NEXT(p)))
+#define PREV_FREP(p) ((char *)GET(SECT_PREV(p)))
+
 static char * heap_listp;  // pointer to byte
+static char * free_listp;  // pointer diff to heap_listp
 
 /*---------------function prototypes---------------*/
 static void *expand_heap(size_t size);
 static void *coalesce(void *bp);
 static void *find_fit(size_t asize);
 static void place(void *bp, size_t in_size);
+static void add_free_list(void *p);
+static void delete_free_list(void *p);
+
+#ifdef DEBUG
 static int mm_check(int verbose);
+#endif
+
+/*
+ * add_free_list - add pointer to free lsit
+ * return nothing
+ */
+static void add_free_list(void *p) {
+    if (free_listp == NULL) {
+        free_listp = p;
+        PUT(SECT_NEXT(p), p);
+        PUT(SECT_PREV(p), p);
+    }
+    else {
+        char *a = free_listp;
+        char *b = NEXT_FREP(free_listp);
+        PUT(SECT_NEXT(p), b);
+        PUT(SECT_PREV(p), a);
+        PUT(SECT_NEXT(a), p);
+        PUT(SECT_PREV(b), p);
+    }
+}
+
+/*
+ * add_free_list - add pointer to free lsit
+ * return nothing
+ */
+static void delete_free_list(void *p) {
+    char *a = PREV_FREP(p);
+    char *b = NEXT_FREP(p);
+    if (p == free_listp && a == free_listp) {  // difficult...
+        free_listp = NULL;  // corner case..
+    }
+    else {
+        PUT(SECT_NEXT(a), b);
+        PUT(SECT_PREV(b), a);
+        if (p == free_listp)
+            free_listp = a;  // difficult.. update free_listp..
+    }
+}
 
 /* 
  * mm_init - initialize the malloc package.
@@ -96,7 +157,8 @@ int mm_init(void) {
  *    Always allocate a block whose size is a multiple of the alignment.
  */
 void *mm_malloc(size_t size) {
-    DBG_PRINTF("start mm_malloc\n");
+    DBG_PRINTF("start mm_malloc %d\n", malloc_count);
+    MALLOC_ADD;
     int asize = ALIGN(size + DSIZE);  // Dsize is head+foot
     if (size == 0)  // ignore wrong inputs
         return NULL;
@@ -112,10 +174,12 @@ void *mm_malloc(size_t size) {
  * mm_free - Freeing a block. then coalesce. 
  */
 void mm_free(void *bp) {
-    DBG_PRINTF("start mm_free\n");
+    DBG_PRINTF("start mm_free %d\n", free_count);
+    FREE_ADD;
     size_t size = GET_SIZE(HDRP(bp));
     PUT(HDRP(bp), PACK(size, 0));
     PUT(FTRP(bp), PACK(size, 0));
+    // add_free_list(HDRP(bp));
     coalesce(bp);
     CHECKHEAP(1);
 }
@@ -125,7 +189,8 @@ void mm_free(void *bp) {
  * Implemented simply in terms of mm_malloc and mm_free
  */
 void *mm_realloc(void *bp, size_t in_size) {
-    DBG_PRINTF("start mm_realloc\n");
+    DBG_PRINTF("start mm_realloc %d\n", realloc_count);
+    REALLOC_ADD;
     if (in_size == 0) {
         free(bp);
         return NULL;
@@ -151,7 +216,6 @@ void *mm_realloc(void *bp, size_t in_size) {
  * return NULL if error else block pointer
  */
 static void *expand_heap(size_t size) {
-    // note no pointer +- and dereference!
     void *bp;
     size_t asize = ALIGN(size);
     if ((bp = mem_sbrk(asize)) == (void *)-1)
@@ -159,37 +223,53 @@ static void *expand_heap(size_t size) {
     PUT(HDRP(bp), PACK(asize, 0));
     PUT(FTRP(bp), PACK(asize, 0));
     PUT(HDRP(NEXT_BLKP(bp)), PACK(0, 1));
+    bp = coalesce(bp);
+    // add_free_list(HDRP(bp));
     return (void *)bp;
 }
 
 /*
  * coalesce - merge free block with adjacent blocks
- * return the original block pointer
+ * input: block pointer that not in free list
+ * return the new block pointer
  */
 static void *coalesce(void *bp) {
     size_t prev_alloc = GET_ALLOC(HDRP(PREV_BLKP(bp)));
     size_t next_alloc = GET_ALLOC(HDRP(NEXT_BLKP(bp)));
     size_t size = GET_SIZE(HDRP(bp));
-    if (prev_alloc & next_alloc)
-        return bp;  // shortcut, can be ommited
-    if (prev_alloc && !next_alloc) {
+    if (prev_alloc & next_alloc) {
+        add_free_list(HDRP(bp));
+        // return bp;  // shortcut, can be ommited
+    }
+    else if (prev_alloc && !next_alloc) {
+        delete_free_list(HDRP(NEXT_BLKP(bp)));
         size += GET_SIZE(HDRP(NEXT_BLKP(bp)));
+        PUT(HDRP(bp), PACK(size, 0)); // put right size at header
+        PUT(FTRP(bp), PACK(size, 0)); // correct footer  
+        add_free_list(HDRP(bp));
     }
     else if (!prev_alloc && next_alloc) {
+        delete_free_list(HDRP(PREV_BLKP(bp)));
         size += GET_SIZE(HDRP(PREV_BLKP(bp)));
         bp = PREV_BLKP(bp);
+        PUT(HDRP(bp), PACK(size, 0)); // put right size at header
+        PUT(FTRP(bp), PACK(size, 0)); // correct footer 
+        add_free_list(HDRP(bp)); 
     }
     else {
+        delete_free_list(HDRP(NEXT_BLKP(bp)));
+        delete_free_list(HDRP(PREV_BLKP(bp)));
         size += GET_SIZE(HDRP(NEXT_BLKP(bp))) + \
             GET_SIZE(HDRP(PREV_BLKP(bp)));
         bp = PREV_BLKP(bp);   
+        PUT(HDRP(bp), PACK(size, 0)); // put right size at header
+        PUT(FTRP(bp), PACK(size, 0)); // correct footer  
+        PUT(FTRP(bp), PACK(size, 0)); // correct footer  
+        PUT(FTRP(bp), PACK(size, 0)); // correct footer  
+        PUT(FTRP(bp), PACK(size, 0)); // correct footer  
+        PUT(FTRP(bp), PACK(size, 0)); // correct footer  
+        add_free_list(HDRP(bp)); 
     }
-    // conditional move is error prone
-    // size += !prev_alloc ? GET_SIZE(HDRP(PREV_BLKP(bp))) : 0;
-    // size += !next_alloc ? GET_SIZE(HDRP(NEXT_BLKP(bp))) : 0;
-    // bp = !prev_alloc ? PREV_BLKP(bp) : bp;
-    PUT(HDRP(bp), PACK(size, 0)); // put right size at header
-    PUT(FTRP(bp), PACK(size, 0)); // correct footer  
     return bp;
 }
 
@@ -198,12 +278,21 @@ static void *coalesce(void *bp) {
  * return NULL if no such block else block pointer
  */
 static void *find_fit(size_t asize) {
-    void *bp = NEXT_BLKP(heap_listp);
-    while (GET_SIZE(HDRP(bp)) > 0) {  // forget HERP...
-        if (!GET_ALLOC(HDRP(bp)) && GET_SIZE(HDRP(bp)) >= asize)
-            return bp;
-        bp = NEXT_BLKP(bp);    
-    }
+    // void *bp = NEXT_BLKP(heap_listp);
+    // while (GET_SIZE(HDRP(bp)) > 0) {  // forget HERP...
+    //     if (!GET_ALLOC(HDRP(bp)) && GET_SIZE(HDRP(bp)) >= asize)
+    //         return bp;
+    //     bp = NEXT_BLKP(bp);    
+    // }
+    // return NULL;
+    if (free_listp == NULL)
+        return NULL;
+    void *p = free_listp;
+    do {
+        p = NEXT_FREP(p);
+        if (GET_SIZE(p) >= asize)
+            return (void *) GET_BLOCKP(p);
+    } while (p != free_listp);
     return NULL;
 }
 
@@ -213,14 +302,18 @@ static void *find_fit(size_t asize) {
  * return nothing
  */
 static void place(void *bp, size_t target_size) {
+    void *p = HDRP(bp);
     size_t real_size = GET_SIZE(HDRP(bp));  // real block size
     size_t diff = real_size - target_size;  // must > 0
+    delete_free_list(p);
     if (diff >= 2 * DSIZE) {
         PUT(HDRP(bp), PACK(target_size, 1));
         PUT(FTRP(bp), PACK(target_size, 1));
         bp = NEXT_BLKP(bp);
         PUT(HDRP(bp), PACK(diff, 0));
         PUT(FTRP(bp), PACK(diff, 0));
+        // add_free_list(HDRP(bp));
+        coalesce(bp);
     }
     else {
         PUT(HDRP(bp), PACK(real_size, 1));
@@ -232,12 +325,16 @@ static void place(void *bp, size_t target_size) {
  * mm_check(void) - check any consistensy problem
  * return nothing
  */
+#ifdef DEBUG
 static int mm_check(int verbose) {
     char * bp = heap_listp;
-    int i = 0;
+    int num_block = 0;
+    int num_free = 0, num_free_node = 0;
     
-    DBG_PRINTF("start checking with verbose %d\n", verbose);
-    while (GET_SIZE(HDRP(bp)) > 0) {
+    do {
+        if (!GET_ALLOC(HDRP(bp))) {
+            ++num_free;
+        }
         DBG_PRINTF("\033[0;31m");
         if ((void *)(HDRP(bp)) > mem_heap_hi())
             DBG_PRINTF("header overflow!!!!\n");
@@ -255,10 +352,30 @@ static int mm_check(int verbose) {
         DBG_PRINTF("block size: %d, alloc %d\n", \
             GET_SIZE(HDRP(bp)), GET_ALLOC(HDRP(bp)));
         bp = NEXT_BLKP(bp);
-        ++i;
-    }
+        ++num_block;
+    } while (GET_SIZE(HDRP(bp)) > 0);
     DBG_PRINTF("block size: %d, alloc %d\n", \
-            GET_SIZE(HDRP(bp)), GET_ALLOC(HDRP(bp)));  // epilogue
-    DBG_PRINTF("new check with %d blocks\n\n", i + 1);
+        GET_SIZE(HDRP(bp)), GET_ALLOC(HDRP(bp)));
+
+    DBG_PRINTF("\033[0;31m");
+    if (free_listp != NULL) {
+        void *p = free_listp;
+        do {
+            if (GET_ALLOC(p))
+                DBG_PRINTF("allocated block in free list\n");
+            if (SECT_NEXT(p) == NULL || SECT_PREV(p) == NULL)
+                DBG_PRINTF("NULL next or prev pointer\n");
+            ++num_free_node;     
+            p = NEXT_FREP(p);            
+        } while(p != free_listp);
+    }
+    if (num_free_node != num_free)
+        DBG_PRINTF("actual free: %d, free list: %d\n", \
+            num_free, num_free_node);
+    DBG_PRINTF("\033[0m");            
+
+    DBG_PRINTF("new check %d with %d blocks and %d "
+        "free blocks \n\n", verbose, num_block + 1, num_free);
     return 1;
 }
+#endif

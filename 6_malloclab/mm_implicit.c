@@ -159,6 +159,7 @@ static void *expand_heap(size_t size) {
     PUT(HDRP(bp), PACK(asize, 0));
     PUT(FTRP(bp), PACK(asize, 0));
     PUT(HDRP(NEXT_BLKP(bp)), PACK(0, 1));
+    // TODO should add coalesce here?
     return (void *)bp;
 }
 

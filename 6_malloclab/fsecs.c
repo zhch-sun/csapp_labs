@@ -50,7 +50,11 @@ double fsecs(fsecs_test_funct f, void *argp)
 #elif USE_ITIMER
     return ftimer_itimer(f, argp, 10);
 #elif USE_GETTOD
+#ifdef DEBUG
+    return ftimer_gettod(f, argp, 0);
+#else
     return ftimer_gettod(f, argp, 10);
+#endif
 #endif 
 }
 
