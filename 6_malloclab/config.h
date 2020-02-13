@@ -45,7 +45,7 @@
  * but extremely stupid malloc packages.
  */
 // #define AVG_LIBC_THRUPUT      600E3  /* 600 Kops/sec */
-#define AVG_LIBC_THRUPUT      13000E3  /* 600 Kops/sec */
+#define AVG_LIBC_THRUPUT      13000E3  /* 20 times faster */
 
  /* 
   * This constant determines the contributions of space utilization

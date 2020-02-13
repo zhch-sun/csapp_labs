@@ -35,6 +35,15 @@ team_t team = {
     ""
 };
 
+#define DEBUG
+#ifdef DEBUG
+#define DBG_PRINTF(...) fprintf(stderr, __VA_ARGS__)
+#define CHECKHEAP(verbose) mm_check(verbose)
+#else
+#define DBG_PRINTF(...)
+#define CHECKHEAP(verbose)
+#endif
+
 /*---------------       macros       ---------------*/
 #define WSIZE 4
 #define DSIZE 8
@@ -60,23 +69,24 @@ static void *expand_heap(size_t size);
 static void *coalesce(void *bp);
 static void *find_fit(size_t asize);
 static void place(void *bp, size_t in_size);
-static int mm_check(void);
+static int mm_check(int verbose);
 
 /* 
  * mm_init - initialize the malloc package.
  * return 0 if norm -1 if error
  */
 int mm_init(void) {
+    DBG_PRINTF("start mm_init\n");
     if ((heap_listp = (char *)mem_sbrk(4 * WSIZE)) == (void*) -1)
         return -1;
     PUT(heap_listp + 0 * WSIZE, 0);  // for align
     PUT(heap_listp + 1 * WSIZE, PACK(DSIZE, 1));
     PUT(heap_listp + 2 * WSIZE, PACK(DSIZE, 1));
-    PUT(heap_listp + 3 * WSIZE, PACK(0, 1));
+    PUT(heap_listp + 3 * WSIZE, PACK(0, 1));  // epilogue size 0 for find_fit
     heap_listp += 2 * WSIZE;  // as if bp of prologue
     if (expand_heap(CHUNKSIZE) == NULL)
         return -1;
-    // mm_check();        
+    CHECKHEAP(1);       
     return 0;
 }
 
@@ -86,6 +96,7 @@ int mm_init(void) {
  *    Always allocate a block whose size is a multiple of the alignment.
  */
 void *mm_malloc(size_t size) {
+    DBG_PRINTF("start mm_malloc\n");
     int asize = ALIGN(size + DSIZE);  // Dsize is head+foot
     if (size == 0)  // ignore wrong inputs
         return NULL;
@@ -93,7 +104,7 @@ void *mm_malloc(size_t size) {
     if (bp == NULL && (bp = expand_heap(MAX(asize, CHUNKSIZE))) == NULL)
         return NULL;
     place(bp, asize);
-    // mm_check();
+    CHECKHEAP(1);
     return bp;
 }
 
@@ -101,11 +112,12 @@ void *mm_malloc(size_t size) {
  * mm_free - Freeing a block. then coalesce. 
  */
 void mm_free(void *bp) {
+    DBG_PRINTF("start mm_free\n");
     size_t size = GET_SIZE(HDRP(bp));
     PUT(HDRP(bp), PACK(size, 0));
     PUT(FTRP(bp), PACK(size, 0));
     coalesce(bp);
-    // mm_check();
+    CHECKHEAP(1);
 }
 
 /*
@@ -113,6 +125,7 @@ void mm_free(void *bp) {
  * Implemented simply in terms of mm_malloc and mm_free
  */
 void *mm_realloc(void *bp, size_t in_size) {
+    DBG_PRINTF("start mm_realloc\n");
     if (in_size == 0) {
         free(bp);
         return NULL;
@@ -129,6 +142,7 @@ void *mm_realloc(void *bp, size_t in_size) {
         copy_size = in_size;
     memcpy(new_bp, bp, copy_size);
     mm_free(bp);
+    CHECKHEAP(1);
     return new_bp;       
 }
 
@@ -218,30 +232,33 @@ static void place(void *bp, size_t target_size) {
  * mm_check(void) - check any consistensy problem
  * return nothing
  */
-static int mm_check(void) {
+static int mm_check(int verbose) {
     char * bp = heap_listp;
     int i = 0;
-    printf("start checking\n");
+    
+    DBG_PRINTF("start checking with verbose %d\n", verbose);
     while (GET_SIZE(HDRP(bp)) > 0) {
+        DBG_PRINTF("\033[0;31m");
         if ((void *)(HDRP(bp)) > mem_heap_hi())
-            printf("header overflow!!!!\n");
+            DBG_PRINTF("header overflow!!!!\n");
         if ((void *)(HDRP(bp)) < mem_heap_lo())
-            printf("header underflow!!!!\n");            
+            DBG_PRINTF("header underflow!!!!\n");            
         if ((void *)(FTRP(bp)) > mem_heap_hi())
-            printf("footer overflow!!!!\n");     
+            DBG_PRINTF("footer overflow!!!!\n");     
         if ((void *)(FTRP(bp)) < mem_heap_lo())
-            printf("footer underflow!!!!\n");                       
+            DBG_PRINTF("footer underflow!!!!\n");                       
         if (GET(HDRP(bp)) != GET(FTRP(bp)))
-            printf("header not equal to footer!!!!\n");
+            DBG_PRINTF("header not equal to footer!!!!\n");
         if (GET_SIZE(HDRP(bp)) > mem_heapsize())
-            printf("size overflow!!!!\n");
-        printf("block size: %d, alloc %d\n", \
+            DBG_PRINTF("size overflow!!!!\n");
+        DBG_PRINTF("\033[0m");    
+        DBG_PRINTF("block size: %d, alloc %d\n", \
             GET_SIZE(HDRP(bp)), GET_ALLOC(HDRP(bp)));
         bp = NEXT_BLKP(bp);
         ++i;
     }
-    printf("block size: %d, alloc %d\n", \
-            GET_SIZE(HDRP(bp)), GET_ALLOC(HDRP(bp)));
-    printf("new check with %d blocks\n\n", i + 1);
+    DBG_PRINTF("block size: %d, alloc %d\n", \
+            GET_SIZE(HDRP(bp)), GET_ALLOC(HDRP(bp)));  // epilogue
+    DBG_PRINTF("new check with %d blocks\n\n", i + 1);
     return 1;
 }
