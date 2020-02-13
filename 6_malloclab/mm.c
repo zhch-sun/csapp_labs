@@ -67,17 +67,16 @@ static int realloc_count;
 #define GET(p)       (*(unsigned int*)(p))
 #define GET_SIZE(p)  (GET(p) & ~0x7)
 #define GET_ALLOC(p) (GET(p) & 0x1)
-#define GET_BLOCKP(p)  ((char *)(p) + WSIZE)
 
 #define HDRP(bp) ((char *)(bp) - WSIZE) // header p
 #define FTRP(bp) ((char *)(bp) + GET_SIZE(HDRP(bp)) - DSIZE)
 #define NEXT_BLKP(bp) ((char *)(bp) + GET_SIZE((char *)(bp) - WSIZE))
 #define PREV_BLKP(bp) ((char *)(bp) - GET_SIZE((char *)(bp) - DSIZE))
 
-#define SECT_NEXT(p) ((char *)(p) + WSIZE)
-#define SECT_PREV(p) ((char *)(p) + DSIZE)
-#define NEXT_FREP(p) ((char *)GET(SECT_NEXT(p)))
-#define PREV_FREP(p) ((char *)GET(SECT_PREV(p)))
+#define SECT_NEXT(bp) ((char *)(bp))
+#define SECT_PREV(bp) ((char *)(bp) + WSIZE)
+#define NEXT_FREP(bp) ((char *)GET(SECT_NEXT(bp)))
+#define PREV_FREP(bp) ((char *)GET(SECT_PREV(bp)))
 
 static char * heap_listp;  // pointer to byte
 static char * free_listp;  // pointer diff to heap_listp
@@ -87,50 +86,12 @@ static void *expand_heap(size_t size);
 static void *coalesce(void *bp);
 static void *find_fit(size_t asize);
 static void place(void *bp, size_t in_size);
-static void add_free_list(void *p);
-static void delete_free_list(void *p);
+static void add_free_list(void *bp);
+static void delete_free_list(void *bp);
 
 #ifdef DEBUG
 static int mm_check(int verbose);
 #endif
-
-/*
- * add_free_list - add pointer to free lsit
- * return nothing
- */
-static void add_free_list(void *p) {
-    if (free_listp == NULL) {
-        free_listp = p;
-        PUT(SECT_NEXT(p), p);
-        PUT(SECT_PREV(p), p);
-    }
-    else {
-        char *a = free_listp;
-        char *b = NEXT_FREP(free_listp);
-        PUT(SECT_NEXT(p), b);
-        PUT(SECT_PREV(p), a);
-        PUT(SECT_NEXT(a), p);
-        PUT(SECT_PREV(b), p);
-    }
-}
-
-/*
- * add_free_list - add pointer to free lsit
- * return nothing
- */
-static void delete_free_list(void *p) {
-    char *a = PREV_FREP(p);
-    char *b = NEXT_FREP(p);
-    if (p == free_listp && a == free_listp) {  // difficult...
-        free_listp = NULL;  // corner case..
-    }
-    else {
-        PUT(SECT_NEXT(a), b);
-        PUT(SECT_PREV(b), a);
-        if (p == free_listp)
-            free_listp = a;  // difficult.. update free_listp..
-    }
-}
 
 /* 
  * mm_init - initialize the malloc package.
@@ -138,13 +99,16 @@ static void delete_free_list(void *p) {
  */
 int mm_init(void) {
     DBG_PRINTF("start mm_init\n");
-    if ((heap_listp = (char *)mem_sbrk(4 * WSIZE)) == (void*) -1)
+    if ((heap_listp = (char *)mem_sbrk(6 * WSIZE)) == (void*) -1)
         return -1;
     PUT(heap_listp + 0 * WSIZE, 0);  // for align
-    PUT(heap_listp + 1 * WSIZE, PACK(DSIZE, 1));
-    PUT(heap_listp + 2 * WSIZE, PACK(DSIZE, 1));
-    PUT(heap_listp + 3 * WSIZE, PACK(0, 1));  // epilogue size 0 for find_fit
-    heap_listp += 2 * WSIZE;  // as if bp of prologue
+    PUT(heap_listp + 1 * WSIZE, heap_listp + 1 * WSIZE);  // free head
+    PUT(heap_listp + 2 * WSIZE, heap_listp + 1 * WSIZE);    
+    PUT(heap_listp + 3 * WSIZE, PACK(DSIZE, 1));
+    PUT(heap_listp + 4 * WSIZE, PACK(DSIZE, 1));
+    PUT(heap_listp + 5 * WSIZE, PACK(0, 1));  // epilogue size 0 for find_fit
+    free_listp = heap_listp + 1 * WSIZE;
+    heap_listp += 4 * WSIZE;  // as if bp of prologue
     if (expand_heap(CHUNKSIZE) == NULL)
         return -1;
     CHECKHEAP(1);       
@@ -179,7 +143,6 @@ void mm_free(void *bp) {
     size_t size = GET_SIZE(HDRP(bp));
     PUT(HDRP(bp), PACK(size, 0));
     PUT(FTRP(bp), PACK(size, 0));
-    // add_free_list(HDRP(bp));
     coalesce(bp);
     CHECKHEAP(1);
 }
@@ -224,7 +187,6 @@ static void *expand_heap(size_t size) {
     PUT(FTRP(bp), PACK(asize, 0));
     PUT(HDRP(NEXT_BLKP(bp)), PACK(0, 1));
     bp = coalesce(bp);
-    // add_free_list(HDRP(bp));
     return (void *)bp;
 }
 
@@ -238,27 +200,26 @@ static void *coalesce(void *bp) {
     size_t next_alloc = GET_ALLOC(HDRP(NEXT_BLKP(bp)));
     size_t size = GET_SIZE(HDRP(bp));
     if (prev_alloc & next_alloc) {
-        add_free_list(HDRP(bp));
-        // return bp;  // shortcut, can be ommited
+        add_free_list(bp);
     }
     else if (prev_alloc && !next_alloc) {
-        delete_free_list(HDRP(NEXT_BLKP(bp)));
+        delete_free_list(NEXT_BLKP(bp));
         size += GET_SIZE(HDRP(NEXT_BLKP(bp)));
         PUT(HDRP(bp), PACK(size, 0)); // put right size at header
         PUT(FTRP(bp), PACK(size, 0)); // correct footer  
-        add_free_list(HDRP(bp));
+        add_free_list(bp);
     }
     else if (!prev_alloc && next_alloc) {
-        delete_free_list(HDRP(PREV_BLKP(bp)));
+        delete_free_list(PREV_BLKP(bp));
         size += GET_SIZE(HDRP(PREV_BLKP(bp)));
         bp = PREV_BLKP(bp);
         PUT(HDRP(bp), PACK(size, 0)); // put right size at header
         PUT(FTRP(bp), PACK(size, 0)); // correct footer 
-        add_free_list(HDRP(bp)); 
+        add_free_list(bp); 
     }
     else {
-        delete_free_list(HDRP(NEXT_BLKP(bp)));
-        delete_free_list(HDRP(PREV_BLKP(bp)));
+        delete_free_list(NEXT_BLKP(bp));
+        delete_free_list(PREV_BLKP(bp));
         size += GET_SIZE(HDRP(NEXT_BLKP(bp))) + \
             GET_SIZE(HDRP(PREV_BLKP(bp)));
         bp = PREV_BLKP(bp);   
@@ -268,7 +229,7 @@ static void *coalesce(void *bp) {
         PUT(FTRP(bp), PACK(size, 0)); // correct footer  
         PUT(FTRP(bp), PACK(size, 0)); // correct footer  
         PUT(FTRP(bp), PACK(size, 0)); // correct footer  
-        add_free_list(HDRP(bp)); 
+        add_free_list(bp); 
     }
     return bp;
 }
@@ -278,21 +239,11 @@ static void *coalesce(void *bp) {
  * return NULL if no such block else block pointer
  */
 static void *find_fit(size_t asize) {
-    // void *bp = NEXT_BLKP(heap_listp);
-    // while (GET_SIZE(HDRP(bp)) > 0) {  // forget HERP...
-    //     if (!GET_ALLOC(HDRP(bp)) && GET_SIZE(HDRP(bp)) >= asize)
-    //         return bp;
-    //     bp = NEXT_BLKP(bp);    
-    // }
-    // return NULL;
-    if (free_listp == NULL)
-        return NULL;
-    void *p = free_listp;
-    do {
-        p = NEXT_FREP(p);
-        if (GET_SIZE(p) >= asize)
-            return (void *) GET_BLOCKP(p);
-    } while (p != free_listp);
+    void * bp = free_listp;
+    while ((bp = NEXT_FREP(bp)) != free_listp) {
+        if (GET_SIZE(HDRP(bp)) >= asize)
+            return (void *)bp;
+    }
     return NULL;
 }
 
@@ -302,23 +253,50 @@ static void *find_fit(size_t asize) {
  * return nothing
  */
 static void place(void *bp, size_t target_size) {
-    void *p = HDRP(bp);
     size_t real_size = GET_SIZE(HDRP(bp));  // real block size
     size_t diff = real_size - target_size;  // must > 0
-    delete_free_list(p);
+    delete_free_list(bp);
     if (diff >= 2 * DSIZE) {
         PUT(HDRP(bp), PACK(target_size, 1));
         PUT(FTRP(bp), PACK(target_size, 1));
         bp = NEXT_BLKP(bp);
         PUT(HDRP(bp), PACK(diff, 0));
         PUT(FTRP(bp), PACK(diff, 0));
-        // add_free_list(HDRP(bp));
         coalesce(bp);
     }
     else {
         PUT(HDRP(bp), PACK(real_size, 1));
         PUT(FTRP(bp), PACK(real_size, 1));
     }
+}
+
+/*
+ * add_free_list - add block pointer to free lsit
+ * return nothing
+ */
+static void add_free_list(void *bp) {
+    // LIFO  faster
+    char *a = free_listp;
+    char *b = NEXT_FREP(free_listp);
+    // FIFO  better space
+    // char *a = PREV_FREP(free_listp);
+    // char *b = free_listp;  
+
+    PUT(SECT_NEXT(bp), b);
+    PUT(SECT_PREV(bp), a);
+    PUT(SECT_NEXT(a), bp);
+    PUT(SECT_PREV(b), bp);    
+}
+
+/*
+ * delete_free_list - remove block pointer from free lsit
+ * return nothing
+ */
+static void delete_free_list(void *bp) {
+    char *a = PREV_FREP(bp);
+    char *b = NEXT_FREP(bp);   
+    PUT(SECT_NEXT(a), b);
+    PUT(SECT_PREV(b), a);     
 }
 
 /*
@@ -359,15 +337,24 @@ static int mm_check(int verbose) {
 
     DBG_PRINTF("\033[0;31m");
     if (free_listp != NULL) {
-        void *p = free_listp;
-        do {
-            if (GET_ALLOC(p))
+        // void *p = free_listp;
+        // do {
+        //     if (GET_ALLOC(p))
+        //         DBG_PRINTF("allocated block in free list\n");
+        //     if (SECT_NEXT(p) == NULL || SECT_PREV(p) == NULL)
+        //         DBG_PRINTF("NULL next or prev pointer\n");
+        //     ++num_free_node;     
+        //     p = NEXT_FREP(p);            
+        // } while(p != free_listp);
+        void *bp = NEXT_FREP(free_listp);
+        while (bp != free_listp) {
+            if (GET_ALLOC(HDRP(bp)))
                 DBG_PRINTF("allocated block in free list\n");
-            if (SECT_NEXT(p) == NULL || SECT_PREV(p) == NULL)
+            if (SECT_NEXT(bp) == NULL || SECT_PREV(bp) == NULL)
                 DBG_PRINTF("NULL next or prev pointer\n");
             ++num_free_node;     
-            p = NEXT_FREP(p);            
-        } while(p != free_listp);
+            bp = NEXT_FREP(bp); 
+        }
     }
     if (num_free_node != num_free)
         DBG_PRINTF("actual free: %d, free list: %d\n", \
