@@ -36,7 +36,7 @@ team_t team = {
     ""
 };
 
-/*---------------   debug macros   ---------------*/
+/*---------------       macros       ---------------*/
 #ifdef DEBUG
 #define DBG_PRINTF(...) fprintf(stderr, __VA_ARGS__)
 #define CHECKHEAP(verbose) mm_check(verbose)
@@ -55,7 +55,6 @@ static int realloc_count;
 #define REALLOC_ADD
 #endif
 
-/*---------------   explicit macros   ---------------*/
 #define WSIZE 4
 #define DSIZE 8
 #define CHUNKSIZE (1 << 12)
@@ -82,12 +81,6 @@ static int realloc_count;
 static char * heap_listp;  // pointer to byte
 static char * free_listp;  // pointer diff to heap_listp
 
-/*--------------- segregated macros   ---------------*/
-#define NUM_BINS 128
-#define NUM_SMALL_BINS (NUM_BINS / 2)  // 64bins [0, 8, 16, ..., 504] bytes
-
-
-
 /*---------------function prototypes---------------*/
 static void *expand_heap(size_t size);
 static void *coalesce(void *bp);
@@ -106,20 +99,16 @@ static int mm_check(int verbose);
  */
 int mm_init(void) {
     DBG_PRINTF("start mm_init\n");
-    if ((free_listp = (char *)mem_sbrk((NUM_SMALL_BINS * 2 + 4) * WSIZE)) \
-        == (void*) -1)
+    if ((heap_listp = (char *)mem_sbrk(6 * WSIZE)) == (void*) -1)
         return -1;
-    // initial 64 small bins [0, 8, 16, ..., 504], first 2 art not used
-    for(int i = 0; i < NUM_SMALL_BINS; i++) {
-        PUT(free_listp + (i*2  ) * WSIZE, free_listp + (i*2) * WSIZE);
-        PUT(free_listp + (i*2+1) * WSIZE, free_listp + (i*2) * WSIZE);
-    }
-    heap_listp = free_listp + NUM_SMALL_BINS * 2 * WSIZE;
-    PUT(heap_listp + 0 * WSIZE, 0);  // for align    
-    PUT(heap_listp + 1 * WSIZE, PACK(DSIZE, 1));
-    PUT(heap_listp + 2 * WSIZE, PACK(DSIZE, 1));
-    PUT(heap_listp + 3 * WSIZE, PACK(0, 1));
-    heap_listp += 2 * WSIZE;
+    PUT(heap_listp + 0 * WSIZE, 0);  // for align
+    PUT(heap_listp + 1 * WSIZE, heap_listp + 1 * WSIZE);  // free head
+    PUT(heap_listp + 2 * WSIZE, heap_listp + 1 * WSIZE);    
+    PUT(heap_listp + 3 * WSIZE, PACK(DSIZE, 1));
+    PUT(heap_listp + 4 * WSIZE, PACK(DSIZE, 1));
+    PUT(heap_listp + 5 * WSIZE, PACK(0, 1));  // epilogue size 0 for find_fit
+    free_listp = heap_listp + 1 * WSIZE;
+    heap_listp += 4 * WSIZE;  // as if bp of prologue
     if (expand_heap(CHUNKSIZE) == NULL)
         return -1;
     CHECKHEAP(1);       
@@ -250,18 +239,7 @@ static void *coalesce(void *bp) {
  * return NULL if no such block else block pointer
  */
 static void *find_fit(size_t asize) {
-    void *bp, *fp;
-    if (asize < 512) {
-        for(int i = asize / 8; i < NUM_SMALL_BINS; ++i) {
-            bp = fp = (void *) (free_listp + i * DSIZE);
-            while ((bp = NEXT_FREP(bp)) != fp) {
-                if (GET_SIZE(HDRP(bp)) >= asize)
-                    return (void *)bp;
-            }            
-        }
-    }
-    // not found in small bins or >= 512 bytes;
-    bp = free_listp;
+    void * bp = free_listp;
     while ((bp = NEXT_FREP(bp)) != free_listp) {
         if (GET_SIZE(HDRP(bp)) >= asize)
             return (void *)bp;
@@ -297,17 +275,9 @@ static void place(void *bp, size_t target_size) {
  * return nothing
  */
 static void add_free_list(void *bp) {
-    // get correct free list
-    void *fp;
-    unsigned int size = GET_SIZE(HDRP(bp));
-    if (size >= 512)
-        fp = free_listp;
-    else
-        fp = free_listp + size / 8 * DSIZE;
-
     // LIFO  faster
-    char *a = fp;
-    char *b = NEXT_FREP(fp);
+    char *a = free_listp;
+    char *b = NEXT_FREP(free_listp);
     // FIFO  better space
     // char *a = PREV_FREP(free_listp);
     // char *b = free_listp;  
@@ -338,8 +308,8 @@ static int mm_check(int verbose) {
     char * bp = heap_listp;
     int num_block = 0;
     int num_free = 0, num_free_node = 0;
-    // check heap sequetially
-    while (GET_SIZE(HDRP(bp)) >= 0) {
+    
+    do {
         if (!GET_ALLOC(HDRP(bp))) {
             ++num_free;
         }
@@ -361,23 +331,21 @@ static int mm_check(int verbose) {
             GET_SIZE(HDRP(bp)), GET_ALLOC(HDRP(bp)));
         bp = NEXT_BLKP(bp);
         ++num_block;
-        if (GET_SIZE(HDRP(bp)) == 0)
-            break;
-    } 
-    // check free lists
+    } while (GET_SIZE(HDRP(bp)) > 0);
+    DBG_PRINTF("block size: %d, alloc %d\n", \
+        GET_SIZE(HDRP(bp)), GET_ALLOC(HDRP(bp)));
+
     DBG_PRINTF("\033[0;31m");
-    char *fp;
-    for (int i = 0; i < NUM_SMALL_BINS; ++i) {
-        fp = free_listp + i * DSIZE;
-        void *bp = NEXT_FREP(fp);
-        while (bp != fp) {
+    if (free_listp != NULL) {
+        void *bp = NEXT_FREP(free_listp);
+        while (bp != free_listp) {
             if (GET_ALLOC(HDRP(bp)))
                 DBG_PRINTF("allocated block in free list\n");
             if (SECT_NEXT(bp) == NULL || SECT_PREV(bp) == NULL)
                 DBG_PRINTF("NULL next or prev pointer\n");
             ++num_free_node;     
             bp = NEXT_FREP(bp); 
-        }        
+        }
     }
     if (num_free_node != num_free)
         DBG_PRINTF("actual free: %d, free list: %d\n", \

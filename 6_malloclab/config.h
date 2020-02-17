@@ -8,7 +8,7 @@
  * May not be used, modified, or copied without permission.
  */
 
-// #define DEBUG
+#define DEBUG
 
 /*
  * This is the default path where the driver will look for the
