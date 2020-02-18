@@ -88,13 +88,14 @@ static char * free_listp;  // pointer diff to heap_listp
 /*--------------- segregated macros   ---------------*/
 #define NUM_BINS 128
 #define NUM_SMALL_BINS (NUM_BINS / 2)  // 64bins [0, 8, 16, ..., 504] bytes
-
+#define SPLIT_THRESH 96
 
 /*---------------function prototypes---------------*/
 static void *expand_heap(size_t size);
 static void *coalesce(void *bp);
 static void *find_fit(size_t asize);
-static void place(void *bp, size_t in_size);
+static void *place(void *bp, size_t in_size);
+static void update_next_block(void *bp, int palloc);
 static void add_free_list(void *bp);
 static void delete_free_list(void *bp);
 
@@ -141,7 +142,7 @@ void *mm_malloc(size_t size) {
     void *bp = find_fit(asize);
     if (bp == NULL && (bp = expand_heap(MAX(asize + DSIZE, CHUNKSIZE))) == NULL)
         return NULL;
-    place(bp, asize);
+    bp = place(bp, asize);
     CHECKHEAP(VERB);
     MALLOC_ADD;
     return bp;
@@ -157,14 +158,7 @@ void mm_free(void *bp) {
     unsigned int palloc = GET_PALLOC(HDRP(bp));
     PUT(HDRP(bp), PACKP(size, 0, palloc));
     PUT(FTRP(bp), PACKP(size, 0, palloc));
-    // change next block
-    void *nbp = NEXT_BLKP(bp);  // next block
-    unsigned int nsize = GET_SIZE(HDRP(nbp));
-    unsigned int nalloc = GET_ALLOC(HDRP(nbp));
-    PUT(HDRP(nbp), PACKP(nsize, nalloc, 0));
-    if (nsize > 0)
-        PUT(FTRP(nbp), PACKP(nsize, nalloc, 0)); 
-    // coalesce
+    update_next_block(bp, 0);
     coalesce(bp);
     FREE_ADD;
     CHECKHEAP(VERB);
@@ -254,12 +248,7 @@ static void *coalesce(void *bp) {
         PUT(FTRP(bp), PACKP(size, 0, ppalloc)); // correct footer  
         add_free_list(bp); 
     }
-    void *nbp = NEXT_BLKP(bp);  // next block
-    unsigned int nsize = GET_SIZE(HDRP(nbp));
-    unsigned int nalloc = GET_ALLOC(HDRP(nbp));
-    PUT(HDRP(nbp), PACKP(nsize, nalloc, 0));
-    if (nsize != 0)  // the last block don't have footer
-        PUT(FTRP(nbp), PACKP(nsize, nalloc, 0));     
+    update_next_block(bp, 0);
     return bp;
 }
 
@@ -290,33 +279,55 @@ static void *find_fit(size_t asize) {
 /*
  * place - convert block to allocated, split if necessary
  * input aligned target block asize
- * return nothing
+ * return the bp pointer that's allocated
  */
-static void place(void *bp, size_t target_size) {
+static void *place(void *bp, size_t target_size) {
     size_t real_size = GET_SIZE(HDRP(bp));  // real block size
     size_t diff = real_size - target_size;  // must > 0
     // Note can't use GET_ALLOC(HDRP(PREV_BLKP(bp))) !!
     unsigned int palloc = GET_PALLOC(HDRP(bp)); 
     delete_free_list(bp);
     if (diff >= 2 * DSIZE) {
-        PUT(HDRP(bp), PACKP(target_size, 1, palloc));
-        PUT(FTRP(bp), PACKP(target_size, 1, palloc));
-        bp = NEXT_BLKP(bp);
-        PUT(HDRP(bp), PACKP(diff, 0, 1));
-        PUT(FTRP(bp), PACKP(diff, 0, 1));
-        coalesce(bp);
+        if (target_size < SPLIT_THRESH) {
+            PUT(HDRP(bp), PACKP(target_size, 1, palloc));
+            PUT(FTRP(bp), PACKP(target_size, 1, palloc));
+            bp = NEXT_BLKP(bp);
+            PUT(HDRP(bp), PACKP(diff, 0, 1));
+            PUT(FTRP(bp), PACKP(diff, 0, 1));
+            coalesce(bp);
+            bp = PREV_BLKP(bp);
+        }
+        else {
+            PUT(HDRP(bp), PACKP(diff, 0, palloc));
+            PUT(FTRP(bp), PACKP(diff, 0, palloc));
+            bp = NEXT_BLKP(bp);
+            PUT(HDRP(bp), PACKP(target_size, 1, 0));
+            PUT(FTRP(bp), PACKP(target_size, 1, 0));
+            update_next_block(bp, 1);
+            coalesce(PREV_BLKP(bp));
+        }
     }
     else {
         PUT(HDRP(bp), PACKP(real_size, 1, palloc));
         PUT(FTRP(bp), PACKP(real_size, 1, palloc));
-
-        void *nbp = NEXT_BLKP(bp);  // next block
-        unsigned int nsize = GET_SIZE(HDRP(nbp));
-        unsigned int nalloc = GET_ALLOC(HDRP(nbp));
-        PUT(HDRP(nbp), PACKP(nsize, nalloc, 1));
-        if (nsize != 0)  // the last block don't have footer
-            PUT(FTRP(nbp), PACKP(nsize, nalloc, 1));         
+        update_next_block(bp, 1);     
     }
+    return bp;
+
+}
+
+/*
+ * update_next_block - update_next_block's prev_alloc bit
+ * input block pointer and the previous alloc bit.
+ * return nothing
+ */
+static void update_next_block(void *bp, int palloc) {
+    void *nbp = NEXT_BLKP(bp);  // next block
+    unsigned int nsize = GET_SIZE(HDRP(nbp));
+    unsigned int nalloc = GET_ALLOC(HDRP(nbp));
+    PUT(HDRP(nbp), PACKP(nsize, nalloc, palloc));
+    if (nsize != 0)  // the last block don't have footer
+        PUT(FTRP(nbp), PACKP(nsize, nalloc, palloc)); 
 }
 
 /*
@@ -332,12 +343,10 @@ static void add_free_list(void *bp) {
     else
         fp = free_listp + size / 8 * DSIZE;
 
-    // LIFO  faster
-    // char *a = fp;
-    // char *b = NEXT_FREP(fp);
-    // FIFO  better space
-    char *a = PREV_FREP(free_listp);
-    char *b = free_listp;  
+    char *a = fp; // LIFO  faster
+    char *b = NEXT_FREP(fp);
+    // char *a = PREV_FREP(free_listp);  // FIFO  better space
+    // char *b = free_listp;  
 
     PUT(SECT_NEXT(bp), b);
     PUT(SECT_PREV(bp), a);
@@ -402,11 +411,13 @@ static int mm_check(int verbose) {
         ++num_block;
     } 
     // check free lists
-    DBG_PRINTF("\033[0;31m");
     char *fp;
     for (int i = 0; i < NUM_SMALL_BINS; ++i) {
         fp = free_listp + i * DSIZE;
         void *bp = NEXT_FREP(fp);
+        // if (verbose > 1)
+        //     DBG_PRINTF("free list %d\n", i);
+        DBG_PRINTF("\033[0;31m");
         while (bp != fp) {
             if (GET_ALLOC(HDRP(bp)))
                 DBG_PRINTF("allocated block in free list\n");
@@ -415,11 +426,13 @@ static int mm_check(int verbose) {
             ++num_free_node;     
             bp = NEXT_FREP(bp); 
         }        
+        DBG_PRINTF("\033[0m");           
     }
+    DBG_PRINTF("\033[0;31m");
     if (num_free_node != num_free)
         DBG_PRINTF("actual free: %d, free list: %d\n", \
             num_free, num_free_node);
-    DBG_PRINTF("\033[0m");            
+    DBG_PRINTF("\033[0m");                     
     if (verbose > 1) {
         DBG_PRINTF("new check %d with %d blocks and %d "
             "free blocks \n\n", verbose, num_block + 1, num_free);
