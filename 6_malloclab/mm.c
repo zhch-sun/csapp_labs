@@ -39,6 +39,7 @@ team_t team = {
 /*---------------   debug macros   ---------------*/
 #ifdef DEBUG
 #define DBG_PRINTF(...) fprintf(stderr, __VA_ARGS__)
+#define VERB 2
 #define CHECKHEAP(verbose) mm_check(verbose)
 #define MALLOC_ADD ++malloc_count
 #define FREE_ADD ++free_count
@@ -63,11 +64,13 @@ static int realloc_count;
 #define MAX(a, b) ((a) > (b) ? (a) : (b))
 
 // core is PUT and GET, all pointer dereference
-#define PACK(size, alloc) ((size) | (alloc))
+// #define PACK(size, alloc) ((size) | (alloc))
+#define PACKP(size, alloc, palloc) ((size) | (alloc) | (palloc << 1))
 #define PUT(p, val)  (*(unsigned int*)(p) = (unsigned int)(val))
 #define GET(p)       (*(unsigned int*)(p))
 #define GET_SIZE(p)  (GET(p) & ~0x7)
 #define GET_ALLOC(p) (GET(p) & 0x1)
+#define GET_PALLOC(p) ((GET(p) >> 1) & 0x1)
 
 #define HDRP(bp) ((char *)(bp) - WSIZE) // header p
 #define FTRP(bp) ((char *)(bp) + GET_SIZE(HDRP(bp)) - DSIZE)
@@ -85,7 +88,6 @@ static char * free_listp;  // pointer diff to heap_listp
 /*--------------- segregated macros   ---------------*/
 #define NUM_BINS 128
 #define NUM_SMALL_BINS (NUM_BINS / 2)  // 64bins [0, 8, 16, ..., 504] bytes
-
 
 
 /*---------------function prototypes---------------*/
@@ -116,13 +118,13 @@ int mm_init(void) {
     }
     heap_listp = free_listp + NUM_SMALL_BINS * 2 * WSIZE;
     PUT(heap_listp + 0 * WSIZE, 0);  // for align    
-    PUT(heap_listp + 1 * WSIZE, PACK(DSIZE, 1));
-    PUT(heap_listp + 2 * WSIZE, PACK(DSIZE, 1));
-    PUT(heap_listp + 3 * WSIZE, PACK(0, 1));
+    PUT(heap_listp + 1 * WSIZE, PACKP(DSIZE, 1, 1));
+    PUT(heap_listp + 2 * WSIZE, PACKP(DSIZE, 1, 1));
+    PUT(heap_listp + 3 * WSIZE, PACKP(0, 1, 1));
     heap_listp += 2 * WSIZE;
     if (expand_heap(CHUNKSIZE) == NULL)
         return -1;
-    CHECKHEAP(1);       
+    CHECKHEAP(VERB);       
     return 0;
 }
 
@@ -133,15 +135,15 @@ int mm_init(void) {
  */
 void *mm_malloc(size_t size) {
     DBG_PRINTF("start mm_malloc %d\n", malloc_count);
-    MALLOC_ADD;
-    int asize = ALIGN(size + DSIZE);  // Dsize is head+foot
+    int asize = ALIGN(size + WSIZE);  // Dsize is head
     if (size == 0)  // ignore wrong inputs
         return NULL;
     void *bp = find_fit(asize);
-    if (bp == NULL && (bp = expand_heap(MAX(asize, CHUNKSIZE))) == NULL)
+    if (bp == NULL && (bp = expand_heap(MAX(asize + DSIZE, CHUNKSIZE))) == NULL)
         return NULL;
     place(bp, asize);
-    CHECKHEAP(1);
+    CHECKHEAP(VERB);
+    MALLOC_ADD;
     return bp;
 }
 
@@ -150,12 +152,22 @@ void *mm_malloc(size_t size) {
  */
 void mm_free(void *bp) {
     DBG_PRINTF("start mm_free %d\n", free_count);
-    FREE_ADD;
-    size_t size = GET_SIZE(HDRP(bp));
-    PUT(HDRP(bp), PACK(size, 0));
-    PUT(FTRP(bp), PACK(size, 0));
+    // free current block
+    unsigned int size = GET_SIZE(HDRP(bp));
+    unsigned int palloc = GET_PALLOC(HDRP(bp));
+    PUT(HDRP(bp), PACKP(size, 0, palloc));
+    PUT(FTRP(bp), PACKP(size, 0, palloc));
+    // change next block
+    void *nbp = NEXT_BLKP(bp);  // next block
+    unsigned int nsize = GET_SIZE(HDRP(nbp));
+    unsigned int nalloc = GET_ALLOC(HDRP(nbp));
+    PUT(HDRP(nbp), PACKP(nsize, nalloc, 0));
+    if (nsize > 0)
+        PUT(FTRP(nbp), PACKP(nsize, nalloc, 0)); 
+    // coalesce
     coalesce(bp);
-    CHECKHEAP(1);
+    FREE_ADD;
+    CHECKHEAP(VERB);
 }
 
 /*
@@ -164,7 +176,6 @@ void mm_free(void *bp) {
  */
 void *mm_realloc(void *bp, size_t in_size) {
     DBG_PRINTF("start mm_realloc %d\n", realloc_count);
-    REALLOC_ADD;
     if (in_size == 0) {
         free(bp);
         return NULL;
@@ -181,7 +192,8 @@ void *mm_realloc(void *bp, size_t in_size) {
         copy_size = in_size;
     memcpy(new_bp, bp, copy_size);
     mm_free(bp);
-    CHECKHEAP(1);
+    REALLOC_ADD;
+    CHECKHEAP(VERB);
     return new_bp;       
 }
 
@@ -191,12 +203,14 @@ void *mm_realloc(void *bp, size_t in_size) {
  */
 static void *expand_heap(size_t size) {
     void *bp;
-    size_t asize = ALIGN(size);
+    unsigned int asize = ALIGN(size);
     if ((bp = mem_sbrk(asize)) == (void *)-1)
         return NULL;
-    PUT(HDRP(bp), PACK(asize, 0));
-    PUT(FTRP(bp), PACK(asize, 0));
-    PUT(HDRP(NEXT_BLKP(bp)), PACK(0, 1));
+    // Note can't use GET_ALLOC(HDRP(PREV_BLCK(bp)))!
+    unsigned int palloc = GET_PALLOC(HDRP(bp));
+    PUT(HDRP(bp), PACKP(asize, 0, palloc));
+    PUT(FTRP(bp), PACKP(asize, 0, palloc));
+    PUT(HDRP(NEXT_BLKP(bp)), PACKP(0, 1, 0));
     bp = coalesce(bp);
     return (void *)bp;
 }
@@ -207,7 +221,7 @@ static void *expand_heap(size_t size) {
  * return the new block pointer
  */
 static void *coalesce(void *bp) {
-    size_t prev_alloc = GET_ALLOC(HDRP(PREV_BLKP(bp)));
+    size_t prev_alloc = GET_PALLOC(HDRP(bp));
     size_t next_alloc = GET_ALLOC(HDRP(NEXT_BLKP(bp)));
     size_t size = GET_SIZE(HDRP(bp));
     if (prev_alloc & next_alloc) {
@@ -216,16 +230,17 @@ static void *coalesce(void *bp) {
     else if (prev_alloc && !next_alloc) {
         delete_free_list(NEXT_BLKP(bp));
         size += GET_SIZE(HDRP(NEXT_BLKP(bp)));
-        PUT(HDRP(bp), PACK(size, 0)); // put right size at header
-        PUT(FTRP(bp), PACK(size, 0)); // correct footer  
+        PUT(HDRP(bp), PACKP(size, 0, 1)); // put right size at header
+        PUT(FTRP(bp), PACKP(size, 0, 1)); // correct footer  
         add_free_list(bp);
     }
     else if (!prev_alloc && next_alloc) {
         delete_free_list(PREV_BLKP(bp));
         size += GET_SIZE(HDRP(PREV_BLKP(bp)));
         bp = PREV_BLKP(bp);
-        PUT(HDRP(bp), PACK(size, 0)); // put right size at header
-        PUT(FTRP(bp), PACK(size, 0)); // correct footer 
+        unsigned int ppalloc = GET_PALLOC(HDRP(bp));
+        PUT(HDRP(bp), PACKP(size, 0, ppalloc)); // put right size at header
+        PUT(FTRP(bp), PACKP(size, 0, ppalloc)); // correct footer 
         add_free_list(bp); 
     }
     else {
@@ -234,14 +249,17 @@ static void *coalesce(void *bp) {
         size += GET_SIZE(HDRP(NEXT_BLKP(bp))) + \
             GET_SIZE(HDRP(PREV_BLKP(bp)));
         bp = PREV_BLKP(bp);   
-        PUT(HDRP(bp), PACK(size, 0)); // put right size at header
-        PUT(FTRP(bp), PACK(size, 0)); // correct footer  
-        PUT(FTRP(bp), PACK(size, 0)); // correct footer  
-        PUT(FTRP(bp), PACK(size, 0)); // correct footer  
-        PUT(FTRP(bp), PACK(size, 0)); // correct footer  
-        PUT(FTRP(bp), PACK(size, 0)); // correct footer  
+        unsigned int ppalloc = GET_PALLOC(HDRP(bp));
+        PUT(HDRP(bp), PACKP(size, 0, ppalloc)); // put right size at header
+        PUT(FTRP(bp), PACKP(size, 0, ppalloc)); // correct footer  
         add_free_list(bp); 
     }
+    void *nbp = NEXT_BLKP(bp);  // next block
+    unsigned int nsize = GET_SIZE(HDRP(nbp));
+    unsigned int nalloc = GET_ALLOC(HDRP(nbp));
+    PUT(HDRP(nbp), PACKP(nsize, nalloc, 0));
+    if (nsize != 0)  // the last block don't have footer
+        PUT(FTRP(nbp), PACKP(nsize, nalloc, 0));     
     return bp;
 }
 
@@ -277,18 +295,27 @@ static void *find_fit(size_t asize) {
 static void place(void *bp, size_t target_size) {
     size_t real_size = GET_SIZE(HDRP(bp));  // real block size
     size_t diff = real_size - target_size;  // must > 0
+    // Note can't use GET_ALLOC(HDRP(PREV_BLKP(bp))) !!
+    unsigned int palloc = GET_PALLOC(HDRP(bp)); 
     delete_free_list(bp);
     if (diff >= 2 * DSIZE) {
-        PUT(HDRP(bp), PACK(target_size, 1));
-        PUT(FTRP(bp), PACK(target_size, 1));
+        PUT(HDRP(bp), PACKP(target_size, 1, palloc));
+        PUT(FTRP(bp), PACKP(target_size, 1, palloc));
         bp = NEXT_BLKP(bp);
-        PUT(HDRP(bp), PACK(diff, 0));
-        PUT(FTRP(bp), PACK(diff, 0));
+        PUT(HDRP(bp), PACKP(diff, 0, 1));
+        PUT(FTRP(bp), PACKP(diff, 0, 1));
         coalesce(bp);
     }
     else {
-        PUT(HDRP(bp), PACK(real_size, 1));
-        PUT(FTRP(bp), PACK(real_size, 1));
+        PUT(HDRP(bp), PACKP(real_size, 1, palloc));
+        PUT(FTRP(bp), PACKP(real_size, 1, palloc));
+
+        void *nbp = NEXT_BLKP(bp);  // next block
+        unsigned int nsize = GET_SIZE(HDRP(nbp));
+        unsigned int nalloc = GET_ALLOC(HDRP(nbp));
+        PUT(HDRP(nbp), PACKP(nsize, nalloc, 1));
+        if (nsize != 0)  // the last block don't have footer
+            PUT(FTRP(nbp), PACKP(nsize, nalloc, 1));         
     }
 }
 
@@ -306,11 +333,11 @@ static void add_free_list(void *bp) {
         fp = free_listp + size / 8 * DSIZE;
 
     // LIFO  faster
-    char *a = fp;
-    char *b = NEXT_FREP(fp);
+    // char *a = fp;
+    // char *b = NEXT_FREP(fp);
     // FIFO  better space
-    // char *a = PREV_FREP(free_listp);
-    // char *b = free_listp;  
+    char *a = PREV_FREP(free_listp);
+    char *b = free_listp;  
 
     PUT(SECT_NEXT(bp), b);
     PUT(SECT_PREV(bp), a);
@@ -335,6 +362,8 @@ static void delete_free_list(void *bp) {
  */
 #ifdef DEBUG
 static int mm_check(int verbose) {
+    if (verbose == 0)
+        return 1;
     char * bp = heap_listp;
     int num_block = 0;
     int num_free = 0, num_free_node = 0;
@@ -342,6 +371,10 @@ static int mm_check(int verbose) {
     while (GET_SIZE(HDRP(bp)) >= 0) {
         if (!GET_ALLOC(HDRP(bp))) {
             ++num_free;
+        }
+        if (verbose > 1) {
+            DBG_PRINTF("block size: %d, alloc %d, palloc %d\n", \
+                GET_SIZE(HDRP(bp)), GET_ALLOC(HDRP(bp)), GET_PALLOC(HDRP(bp))); 
         }
         DBG_PRINTF("\033[0;31m");
         if ((void *)(HDRP(bp)) > mem_heap_hi())
@@ -352,17 +385,21 @@ static int mm_check(int verbose) {
             DBG_PRINTF("footer overflow!!!!\n");     
         if ((void *)(FTRP(bp)) < mem_heap_lo())
             DBG_PRINTF("footer underflow!!!!\n");                       
-        if (GET(HDRP(bp)) != GET(FTRP(bp)))
-            DBG_PRINTF("header not equal to footer!!!!\n");
+        if (!GET_ALLOC(HDRP(bp)) && GET(HDRP(bp)) != GET(FTRP(bp))) {
+            DBG_PRINTF("header %d not equal to footer %d\n", \
+                GET(HDRP(bp)), GET(FTRP(bp)));
+            // bp = 0;
+            // return *bp;
+        }
+        // if (GET_PALLOC(HDRP(bp)) != GET_ALLOC(HDRP(PREV_BLKP(bp))))
+        //     DBG_PRINTF("palloc wrong!\n");
         if (GET_SIZE(HDRP(bp)) > mem_heapsize())
             DBG_PRINTF("size overflow!!!!\n");
-        DBG_PRINTF("\033[0m");    
-        DBG_PRINTF("block size: %d, alloc %d\n", \
-            GET_SIZE(HDRP(bp)), GET_ALLOC(HDRP(bp)));
+        DBG_PRINTF("\033[0m");   
+        if (GET_SIZE(HDRP(bp)) == 0)
+            break;         
         bp = NEXT_BLKP(bp);
         ++num_block;
-        if (GET_SIZE(HDRP(bp)) == 0)
-            break;
     } 
     // check free lists
     DBG_PRINTF("\033[0;31m");
@@ -383,9 +420,10 @@ static int mm_check(int verbose) {
         DBG_PRINTF("actual free: %d, free list: %d\n", \
             num_free, num_free_node);
     DBG_PRINTF("\033[0m");            
-
-    DBG_PRINTF("new check %d with %d blocks and %d "
-        "free blocks \n\n", verbose, num_block + 1, num_free);
+    if (verbose > 1) {
+        DBG_PRINTF("new check %d with %d blocks and %d "
+            "free blocks \n\n", verbose, num_block + 1, num_free);
+    }
     return 1;
 }
 #endif

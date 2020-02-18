@@ -615,7 +615,7 @@ static int eval_mm_valid(trace_t *trace, int tracenum, range_t **ranges)
             * and must not overlap any currently allocated block. 
             */ 
             if (add_range(ranges, p, size, tracenum, i) == 0)
-            return 0;
+                return 0;
         
             /* ADDED: cgw
             * fill range with low byte of index.  This will be used later

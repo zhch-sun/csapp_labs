@@ -225,10 +225,6 @@ static void *coalesce(void *bp) {
         bp = PREV_BLKP(bp);   
         PUT(HDRP(bp), PACK(size, 0)); // put right size at header
         PUT(FTRP(bp), PACK(size, 0)); // correct footer  
-        PUT(FTRP(bp), PACK(size, 0)); // correct footer  
-        PUT(FTRP(bp), PACK(size, 0)); // correct footer  
-        PUT(FTRP(bp), PACK(size, 0)); // correct footer  
-        PUT(FTRP(bp), PACK(size, 0)); // correct footer  
         add_free_list(bp); 
     }
     return bp;
