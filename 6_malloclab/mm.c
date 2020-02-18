@@ -86,8 +86,8 @@ static char * heap_listp;  // pointer to byte
 static char * free_listp;  // pointer diff to heap_listp
 
 /*--------------- segregated macros   ---------------*/
-#define NUM_BINS 128
-#define NUM_SMALL_BINS (NUM_BINS / 2)  // 64bins [0, 8, 16, ..., 504] bytes
+#define NUM_SMALL_BINS 64  // 64bins [0, 8, 16, ..., 504] bytes
+#define NUM_BINS (NUM_SMALL_BINS + 4)
 #define SPLIT_THRESH 96
 
 /*---------------function prototypes---------------*/
@@ -109,15 +109,16 @@ static int mm_check(int verbose);
  */
 int mm_init(void) {
     DBG_PRINTF("start mm_init\n");
-    if ((free_listp = (char *)mem_sbrk((NUM_SMALL_BINS * 2 + 4) * WSIZE)) \
+    if ((free_listp = (char *)mem_sbrk((NUM_BINS * 2 + 4) * WSIZE)) \
         == (void*) -1)
         return -1;
-    // initial 64 small bins [0, 8, 16, ..., 504], first 2 art not used
-    for(int i = 0; i < NUM_SMALL_BINS; i++) {
+    // 64 small bins [0, 8, 16, ..., 504], 8 bytes each first 2 art not used
+    // then 44 large bins, exponential  [512,1024) 1024 2048 4096
+    for(int i = 0; i < NUM_BINS; i++) {
         PUT(free_listp + (i*2  ) * WSIZE, free_listp + (i*2) * WSIZE);
         PUT(free_listp + (i*2+1) * WSIZE, free_listp + (i*2) * WSIZE);
     }
-    heap_listp = free_listp + NUM_SMALL_BINS * 2 * WSIZE;
+    heap_listp = free_listp + NUM_BINS * 2 * WSIZE;
     PUT(heap_listp + 0 * WSIZE, 0);  // for align    
     PUT(heap_listp + 1 * WSIZE, PACKP(DSIZE, 1, 1));
     PUT(heap_listp + 2 * WSIZE, PACKP(DSIZE, 1, 1));
@@ -258,20 +259,25 @@ static void *coalesce(void *bp) {
  */
 static void *find_fit(size_t asize) {
     void *bp, *fp;
-    if (asize < 512) {
-        for(int i = asize / 8; i < NUM_SMALL_BINS; ++i) {
-            bp = fp = (void *) (free_listp + i * DSIZE);
-            while ((bp = NEXT_FREP(bp)) != fp) {
-                if (GET_SIZE(HDRP(bp)) >= asize)
-                    return (void *)bp;
-            }            
-        }
-    }
-    // not found in small bins or >= 512 bytes;
-    bp = free_listp;
-    while ((bp = NEXT_FREP(bp)) != free_listp) {
-        if (GET_SIZE(HDRP(bp)) >= asize)
-            return (void *)bp;
+    int i;
+    
+    if (asize < 512) 
+        i = asize / 8;
+    else if (asize >= 4096)
+        i = NUM_BINS - 1;
+    else if (asize >= 2048)
+        i = NUM_BINS - 2;
+    else if (asize >= 1024)
+        i = NUM_BINS - 3;
+    else
+        i = NUM_BINS - 4;
+
+    for(; i < NUM_BINS; ++i) {
+        bp = fp = (void *) (free_listp + i * DSIZE);
+        while ((bp = NEXT_FREP(bp)) != fp) {
+            if (GET_SIZE(HDRP(bp)) >= asize)
+                return (void *)bp;
+        }            
     }
     return NULL;
 }
@@ -338,15 +344,23 @@ static void add_free_list(void *bp) {
     // get correct free list
     void *fp;
     unsigned int size = GET_SIZE(HDRP(bp));
-    if (size >= 512)
-        fp = free_listp;
+    int i;
+    if (size < 512) 
+        i = size / 8;
+    else if (size >= 4096)
+        i = NUM_BINS - 1;
+    else if (size >= 2048)
+        i = NUM_BINS - 2;
+    else if (size >= 1024)
+        i = NUM_BINS - 3;
     else
-        fp = free_listp + size / 8 * DSIZE;
+        i = NUM_BINS - 4; 
+    fp = free_listp + i * DSIZE;   
 
-    char *a = fp; // LIFO  faster
-    char *b = NEXT_FREP(fp);
-    // char *a = PREV_FREP(free_listp);  // FIFO  better space
-    // char *b = free_listp;  
+    // char *a = fp; // LIFO a little faster
+    // char *b = NEXT_FREP(fp);
+    char *a = PREV_FREP(fp);  // FIFO better space
+    char *b = fp;  
 
     PUT(SECT_NEXT(bp), b);
     PUT(SECT_PREV(bp), a);
