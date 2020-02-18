@@ -167,7 +167,7 @@ void mm_free(void *bp) {
 
 /*
  * mm_realloc - 
- * Implemented simply in terms of mm_malloc and mm_free
+ * return block pointer
  */
 void *mm_realloc(void *bp, size_t in_size) {
     DBG_PRINTF("start mm_realloc %d\n", realloc_count);
@@ -178,17 +178,40 @@ void *mm_realloc(void *bp, size_t in_size) {
     if (bp == NULL) {
         return malloc(in_size);
     }
+    in_size = ALIGN(in_size + WSIZE);  // must align!
+    size_t o_size = GET_SIZE(HDRP(bp));  // original size
+    if (in_size <= o_size) { // size reduces, return bp directly
+        REALLOC_ADD;
+        CHECKHEAP(VERB);
+        return bp;  // may split
+    }
+    // this assumes free block is followed by epilogue!
+    if (!GET_ALLOC(HDRP(NEXT_BLKP(bp))) || !GET_SIZE(HDRP(NEXT_BLKP(bp)))) {
+        int remainder = o_size + GET_SIZE(HDRP(NEXT_BLKP(bp))) - in_size;
+        if (remainder < 0) {
+            // expand_heap auto coalescing
+            void *new_bp = expand_heap(MAX(-remainder, CHUNKSIZE));
+            if (new_bp == NULL)
+                return NULL;
+            remainder += MAX(-remainder, CHUNKSIZE); // beautiful  
+        }
+        delete_free_list(NEXT_BLKP(bp));
+        unsigned int palloc = GET_PALLOC(HDRP(bp)); 
+        PUT(HDRP(bp), PACKP(in_size + remainder, 1, palloc));
+        PUT(FTRP(bp), PACKP(in_size + remainder, 1, palloc));
+        update_next_block(bp, 1); 
+        REALLOC_ADD; 
+        CHECKHEAP(VERB);
+        return bp;   
+    }
 
     void *new_bp = mm_malloc(in_size);
     if (new_bp == NULL)
         return NULL;
-    size_t copy_size = GET_SIZE(HDRP(bp));
-    if (in_size < copy_size)
-        copy_size = in_size;
-    memcpy(new_bp, bp, copy_size);
+    memcpy(new_bp, bp, o_size - WSIZE);
     mm_free(bp);
     REALLOC_ADD;
-    CHECKHEAP(VERB);
+    // CHECKHEAP(VERB);  same with mm_free
     return new_bp;       
 }
 
@@ -332,7 +355,8 @@ static void update_next_block(void *bp, int palloc) {
     unsigned int nsize = GET_SIZE(HDRP(nbp));
     unsigned int nalloc = GET_ALLOC(HDRP(nbp));
     PUT(HDRP(nbp), PACKP(nsize, nalloc, palloc));
-    if (nsize != 0)  // the last block don't have footer
+    // the last block don't have footer, allocated don't have footer!!
+    if (nsize != 0 && !nalloc)  
         PUT(FTRP(nbp), PACKP(nsize, nalloc, palloc)); 
 }
 
@@ -396,7 +420,7 @@ static int mm_check(int verbose) {
             ++num_free;
         }
         if (verbose > 1) {
-            DBG_PRINTF("block size: %d, alloc %d, palloc %d\n", \
+            DBG_PRINTF("%x size: %d, alloc %d, palloc %d\n", bp, \
                 GET_SIZE(HDRP(bp)), GET_ALLOC(HDRP(bp)), GET_PALLOC(HDRP(bp))); 
         }
         DBG_PRINTF("\033[0;31m");
@@ -426,7 +450,7 @@ static int mm_check(int verbose) {
     } 
     // check free lists
     char *fp;
-    for (int i = 0; i < NUM_SMALL_BINS; ++i) {
+    for (int i = 0; i < NUM_BINS; ++i) {
         fp = free_listp + i * DSIZE;
         void *bp = NEXT_FREP(fp);
         // if (verbose > 1)
