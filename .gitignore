@@ -25,3 +25,9 @@ others/
 5_cachelab/trace.*
 
 6_malloclab/mdriver
+
+7_shlab/myspin
+7_shlab/myint
+7_shlab/mysplit
+7_shlab/mystop
+7_shlab/tsh
