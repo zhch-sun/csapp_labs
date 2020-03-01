@@ -1,7 +1,7 @@
 /* 
  * tsh - A tiny shell program with job control
  * 
- * <Put your name and login ID here>
+ * <zhichens@andrew.cmu.edu>
  */
 #include <stdio.h>
 #include <stdlib.h>
@@ -168,29 +168,45 @@ void eval(char *cmdline)
     char *argv[MAXARGS];  // converted argv
     int bg;   // program run in background or foreground?
     pid_t pid;
-
+    sigset_t mask_all, mask_one, prev_one;  // prev_one is the mask before adding sigchld
+    sigfillset(&mask_all);
+    sigemptyset(&mask_one);
+    sigaddset(&mask_one, SIGCHLD);
+    // printf("cmdline: %s", cmdline);
+    fflush(stdout);
     bg = parseline(cmdline, argv);
     if (argv[0] == NULL)
         return;
+    // printf("1\n");
+    fflush(stdout);        
     if (!builtin_cmd(argv)) {
+        // printf("2\n");
+        fflush(stdout);           
+        // if (!strcmp(argv[0], "./myspin"))
+        //     printf("cmd: %s, parse bg: %d\n", cmdline, bg);
+        sigprocmask(SIG_BLOCK, &mask_one, &prev_one);
         if ((pid = fork()) < 0)
             unix_error("fork error");
-        setpgid(0, 0);  // new process group, no matter fg or bg!!   
         if (pid == 0) {  // child
+            setpgid(0, 0);  // new process group, no matter fg or bg!!
+            sigprocmask(SIG_SETMASK, &prev_one, NULL);
             if (execve(argv[0], argv, environ) < 0) {
                 printf("%s: Command not found. \n", argv[0]);
                 exit(0);
             }
         }
         if (!bg) {
+            // printf("!bg\n");
+            sigprocmask(SIG_BLOCK, &mask_all, NULL);
             addjob(jobs, pid, FG, cmdline);
-            int status;
-            if (waitpid(pid, &status, 0) < 0)
-                unix_error("waitfg: waitpid error");
-            deletejob(jobs, pid);
+            sigprocmask(SIG_SETMASK, &prev_one, NULL);
+            waitfg(pid);
         }
         else {
+            // printf("bg\n");
+            sigprocmask(SIG_BLOCK, &mask_all, NULL);
             addjob(jobs, pid, BG, cmdline);
+            sigprocmask(SIG_SETMASK, &prev_one, NULL);
             printf("[%d] (%d) %s", pid2jid(pid), pid, cmdline);
         }
     }
@@ -260,12 +276,16 @@ int parseline(const char *cmdline, char **argv)
  */
 int builtin_cmd(char **argv) 
 {
+    sigset_t mask_all, prev_all;
+    sigfillset(&mask_all);
     if (!strcmp(argv[0], "quit"))  // return 0 if identical
         exit(0);
     if (!strcmp(argv[0], "&"))
         return 1;  // ignore it
     if (!strcmp(argv[0], "jobs")) {
+        sigprocmask(SIG_BLOCK, &mask_all, &prev_all);                
         listjobs(jobs);
+        sigprocmask(SIG_SETMASK, &prev_all, NULL);  
         return 1;
     }
     return 0;     /* not a builtin command */
@@ -284,6 +304,21 @@ void do_bgfg(char **argv)
  */
 void waitfg(pid_t pid)
 {
+    sigset_t mask_all, mask_one, prev_one;
+    sigfillset(&mask_all);
+    sigemptyset(&mask_one);
+    sigaddset(&mask_one, SIGCHLD);
+
+    sigprocmask(SIG_BLOCK, &mask_all, &prev_one);
+    // printf("in waitfg pid %d\n", pid);
+    struct job_t *job = getjobpid(jobs, pid);
+    sigprocmask(SIG_SETMASK, &prev_one, NULL);
+
+    sigprocmask(SIG_UNBLOCK, &mask_one, NULL);
+    while (job && job->state == FG)
+        sleep(1);
+    // printf("exit waitfg pid %d\n", pid);
+    // fflush(stdout);
     return;
 }
 
@@ -300,6 +335,26 @@ void waitfg(pid_t pid)
  */
 void sigchld_handler(int sig) 
 {
+    int olderrno = errno;
+    sigset_t mask_all, prev_all;
+    sigfillset(&mask_all);
+    pid_t pid;
+    int status;
+    // reap a zombie child
+    while ((pid = waitpid(-1, &status, WNOHANG | WUNTRACED)) > 0) {
+        if (WIFSTOPPED(status)) {  // pass a stopped child
+            continue;
+        }
+        sigprocmask(SIG_BLOCK, &mask_all, &prev_all);
+        deletejob(jobs, pid);
+        // printf("reaping child %d\n", pid);
+        sigprocmask(SIG_SETMASK, &prev_all, NULL);
+    }
+    // if (errno != ECHILD)
+    if (pid == -1 && errno != ECHILD)
+        unix_error("waitpid error");
+    // fflush(stdout);        
+    errno = olderrno;
     return;
 }
 
@@ -310,13 +365,24 @@ void sigchld_handler(int sig)
  */
 void sigint_handler(int sig) 
 {
+    int olderrno = errno;
+    sigset_t mask_all, prev_all;
+    sigfillset(&mask_all);
+    sigprocmask(SIG_BLOCK, &mask_all, &prev_all);
     pid_t pid = fgpid(jobs);
+    sigprocmask(SIG_SETMASK, &prev_all, NULL);
     if (pid > 0) {
-        if (kill(-pid, SIGKILL) < 0)
+        if (kill(-pid, SIGINT) < 0)
             unix_error("kill error with pid");
-        else
-            printf("Job [%d] (%d) terminated by signal 2\n", pid2jid(pid), pid); 
+        else {
+            sigprocmask(SIG_BLOCK, &mask_all, &prev_all);  
+            deletejob(jobs, pid);
+            printf("Job [%d] (%d) terminated by signal %d\n", \
+                pid2jid(pid), pid, SIGINT);                           
+            sigprocmask(SIG_SETMASK, &prev_all, NULL);
+        }
     }
+    errno = olderrno;
     return;  // pid == 0, no action
 }
 
@@ -325,9 +391,30 @@ void sigint_handler(int sig)
  *     the user types ctrl-z at the keyboard. Catch it and suspend the
  *     foreground job by sending it a SIGTSTP.  
  */
-void sigtstp_handler(int sig) 
+void sigtstp_handler(int sig)
 {
-    return;
+    int olderrno = errno;
+    sigset_t mask_all, prev_all;
+    sigfillset(&mask_all);
+    sigprocmask(SIG_BLOCK, &mask_all, &prev_all);
+    pid_t pid = fgpid(jobs);
+    struct job_t *job = getjobpid(jobs, pid);
+    // printf("in sigtstp handler, pid %d\n", pid);
+    sigprocmask(SIG_SETMASK, &prev_all, NULL);
+    if (pid > 0) {
+        if (kill(-pid, SIGTSTP) < 0)
+            unix_error("stop error with pid");
+        else {
+            sigprocmask(SIG_BLOCK, &mask_all, &prev_all);   
+            job->state = ST;
+            printf("Job [%d] (%d) stopped by signal %d\n", \
+                pid2jid(pid), pid, SIGTSTP);                                         
+            sigprocmask(SIG_SETMASK, &prev_all, NULL);
+        }
+    }
+    // fflush(stdout);
+    errno = olderrno;
+    return;  // pid == 0, no action
 }
 
 /*********************
