@@ -1,0 +1,116 @@
+#
+# trace16.txt - Tests whether the shell can handle SIGTSTP and SIGINT
+#     signals that come from other processes instead of the terminal.
+#
+tsh> ./mystop 2
+Job [1] (5424) stopped by signal 20
+tsh> jobs
+[1] (5424) Stopped ./mystop 2
+tsh> ./myint 2
+Job [2] (5427) terminated by signal 2
+pin 4 &
+tsh> fg %1
+Job [1] (5409) stopped by signal 20
+tsh> jobs
+[1] (5409) Stopped ./myspin 3 &
+[2] (5411) Running ./myspin 4 &
+tsh> bg %3
+%3: No such job
+tsh> bg %1
+[1] (5409) ./myspin 3 &
+tsh> jobs
+[1] (5409) Running ./myspin 3 &
+[2] (5411) Running ./myspin 4 &
+tsh> fg %1
+tsh> quit
+spin 4 &
+0 tty1     Sl+   13:53 /usr/bin/gnome-shell
+ 1336 tty1     Sl     0:48 ibus-daemon --xim --panel disable
+ 1340 tty1     Sl     0:00 /usr/lib/ibus/ibus-dconf
+ 1342 tty1     Sl     0:00 /usr/lib/ibus/ibus-x11 --kill-daemon
+ 1422 tty1     Sl+    0:04 /usr/lib/gnome-settings-daemon/gsd-power
+ 1424 tty1     Sl+    0:00 /usr/lib/gnome-settings-daemon/gsd-print-notifications
+ 1427 tty1     Sl+    0:00 /usr/lib/gnome-settings-daemon/gsd-rfkill
+ 1429 tty1     Sl+    0:00 /usr/lib/gnome-settings-daemon/gsd-screensaver-proxy
+ 1432 tty1     Sl+    0:00 /usr/lib/gnome-settings-daemon/gsd-sharing
+ 1439 tty1     Sl+    0:00 /usr/lib/gnome-settings-daemon/gsd-smartcard
+ 1445 tty1     Sl+    0:00 /usr/lib/gnome-settings-daemon/gsd-xsettings
+ 1449 tty1     Sl+    0:00 /usr/lib/gnome-settings-daemon/gsd-wacom
+ 1450 tty1     Sl+    0:00 /usr/lib/gnome-settings-daemon/gsd-sound
+ 1457 tty1     Sl+    0:00 /usr/lib/gnome-settings-daemon/gsd-a11y-settings
+ 1460 tty1     Sl+    0:00 /usr/lib/gnome-settings-daemon/gsd-clipboard
+ 1463 tty1     Sl+   12:03 /usr/lib/gnome-settings-daemon/gsd-color
+ 1464 tty1     Sl+    0:00 /usr/lib/gnome-settings-daemon/gsd-datetime
+ 1465 tty1     Sl+    0:16 /usr/lib/gnome-settings-daemon/gsd-housekeeping
+ 1467 tty1     Sl+    0:00 /usr/lib/gnome-settings-daemon/gsd-keyboard
+ 1469 tty1     Sl+    0:01 /usr/lib/gnome-settings-daemon/gsd-media-keys
+ 1473 tty1     Sl+    0:00 /usr/lib/gnome-settings-daemon/gsd-mouse
+ 1507 tty1     Sl+    0:00 /usr/lib/gnome-settings-daemon/gsd-printer
+ 1546 tty1     Sl+    0:21 nautilus-desktop
+ 1550 tty1     Sl+    0:00 /usr/lib/gnome-disk-utility/gsd-disk-utility-notify
+ 1617 tty1     Sl     0:17 /usr/lib/ibus/ibus-engine-simple
+ 1678 pts/0    Ss     0:00 bash
+ 1696 pts/0    S+     0:00 tmux
+ 1699 pts/1    Ss+    0:00 -bash
+ 1724 pts/2    Ss+    0:00 -bash
+ 1736 tty1     SLl+   0:59 /usr/bin/gnome-software --gapplication-service
+ 1738 tty1     Sl+    0:22 update-notifier
+ 5195 pts/3    S+     0:00 vim tshref.out
+ 5290 pts/5    S+     0:00 make testall
+ 5371 pts/5    S+     0:00 /bin/sh -c ./sdriver.pl -t trace13.txt -s ./tsh -a "-p"
+ 5372 pts/5    S+     0:00 /usr/bin/perl ./sdriver.pl -t trace13.txt -s ./tsh -a -p
+ 5373 pts/5    S+     0:00 ./tsh -p
+ 5375 pts/5    T      0:00 ./mysplit 4
+ 5376 pts/5    T      0:00 ./mysplit 4
+ 5379 pts/5    R      0:00 /bin/ps a
+10031 pts/3    Ss     0:00 -bash
+19159 tty1     SNl+   0:07 /usr/bin/python3 /usr/bin/update-manager --no-update --no-focus-on-map
+26530 pts/4    Ss+    0:00 -bash
+29950 pts/5    Ss     0:00 -bash
+tsh> fg %1
+tsh> /bin/ps a
+  PID TTY      STAT   TIME COMMAND
+ 1114 tty1     Ssl+   0:00 /usr/lib/gdm3/gdm-x-session --run-script env GNOME_SHELL_SESSION_MODE=ubuntu gnome-session --session=ubuntu
+ 1116 tty1     Sl+    4:20 /usr/lib/xorg/Xorg vt1 -displayfd 3 -auth /run/user/1000/gdm/Xauthority -background none -noreset -keeptty -verbose 3
+ 1126 tty1     Sl+    0:00 /usr/lib/gnome-session/gnome-session-binary --session=ubuntu
+ 1290 tty1     Sl+   13:53 /usr/bin/gnome-shell
+ 1336 tty1     Sl     0:48 ibus-daemon --xim --panel disable
+ 1340 tty1     Sl     0:00 /usr/lib/ibus/ibus-dconf
+ 1342 tty1     Sl     0:00 /usr/lib/ibus/ibus-x11 --kill-daemon
+ 1422 tty1     Sl+    0:04 /usr/lib/gnome-settings-daemon/gsd-power
+ 1424 tty1     Sl+    0:00 /usr/lib/gnome-settings-daemon/gsd-print-notifications
+ 1427 tty1     Sl+    0:00 /usr/lib/gnome-settings-daemon/gsd-rfkill
+ 1429 tty1     Sl+    0:00 /usr/lib/gnome-settings-daemon/gsd-screensaver-proxy
+ 1432 tty1     Sl+    0:00 /usr/lib/gnome-settings-daemon/gsd-sharing
+ 1439 tty1     Sl+    0:00 /usr/lib/gnome-settings-daemon/gsd-smartcard
+ 1445 tty1     Sl+    0:00 /usr/lib/gnome-settings-daemon/gsd-xsettings
+ 1449 tty1     Sl+    0:00 /usr/lib/gnome-settings-daemon/gsd-wacom
+ 1450 tty1     Sl+    0:00 /usr/lib/gnome-settings-daemon/gsd-sound
+ 1457 tty1     Sl+    0:00 /usr/lib/gnome-settings-daemon/gsd-a11y-settings
+ 1460 tty1     Sl+    0:00 /usr/lib/gnome-settings-daemon/gsd-clipboard
+ 1463 tty1     Sl+   12:03 /usr/lib/gnome-settings-daemon/gsd-color
+ 1464 tty1     Sl+    0:00 /usr/lib/gnome-settings-daemon/gsd-datetime
+ 1465 tty1     Sl+    0:16 /usr/lib/gnome-settings-daemon/gsd-housekeeping
+ 1467 tty1     Sl+    0:00 /usr/lib/gnome-settings-daemon/gsd-keyboard
+ 1469 tty1     Sl+    0:01 /usr/lib/gnome-settings-daemon/gsd-media-keys
+ 1473 tty1     Sl+    0:00 /usr/lib/gnome-settings-daemon/gsd-mouse
+ 1507 tty1     Sl+    0:00 /usr/lib/gnome-settings-daemon/gsd-printer
+ 1546 tty1     Sl+    0:21 nautilus-desktop
+ 1550 tty1     Sl+    0:00 /usr/lib/gnome-disk-utility/gsd-disk-utility-notify
+ 1617 tty1     Sl     0:17 /usr/lib/ibus/ibus-engine-simple
+ 1678 pts/0    Ss     0:00 bash
+ 1696 pts/0    S+     0:00 tmux
+ 1699 pts/1    Ss+    0:00 -bash
+ 1724 pts/2    Ss+    0:00 -bash
+ 1736 tty1     SLl+   0:59 /usr/bin/gnome-software --gapplication-service
+ 1738 tty1     Sl+    0:22 update-notifier
+ 5195 pts/3    S+     0:00 vim tshref.out
+ 5290 pts/5    S+     0:00 make testall
+ 5371 pts/5    S+     0:00 /bin/sh -c ./sdriver.pl -t trace13.txt -s ./tsh -a "-p"
+ 5372 pts/5    S+     0:00 /usr/bin/perl ./sdriver.pl -t trace13.txt -s ./tsh -a -p
+ 5373 pts/5    S+     0:00 ./tsh -p
+ 5382 pts/5    R      0:00 /bin/ps a
+10031 pts/3    Ss     0:00 -bash
+19159 tty1     SNl+   0:07 /usr/bin/python3 /usr/bin/update-manager --no-update --no-focus-on-map
+26530 pts/4    Ss+    0:00 -bash
+29950 pts/5    Ss     0:00 -bash
