@@ -32,3 +32,8 @@ others/
 7_shlab/mystop
 7_shlab/tsh
 7_shlab/tsh.out
+
+8_proxylab/proxy
+8_proxylab/tiny/tiny
+8_proxylab/tiny/cgi-bin/adder
+
