@@ -264,7 +264,6 @@ basicScore=`expr ${MAX_BASIC} \* ${numSucceeded} / ${numRun}`
 
 echo "basicScore: $basicScore/${MAX_BASIC}"
 
-exit 0
 
 ######
 # Concurrency

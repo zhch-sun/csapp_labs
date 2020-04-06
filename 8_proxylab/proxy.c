@@ -19,13 +19,16 @@ void clienterror(int fd, char *cause, char *errnum,
                  char *shortmsg, char *longmsg);
 void read_requesthdrs(rio_t *rp, char *host, char *headers);  
 void to_server(int srcfd, int clientfd, char *headers); 
+void *thread(void *vargp);
 
 int main(int argc, char **argv)
 {
     int listenfd, connfd;
+    int *connfdp;
     char hostname[MAXLINE], port[MAXLINE];
     socklen_t clientlen;
     struct sockaddr_storage clientaddr;
+    pthread_t tid;
 
     /* Check command line args */
     if (argc != 2) {
@@ -36,14 +39,28 @@ int main(int argc, char **argv)
     listenfd = Open_listenfd(argv[1]);
     while (1) {
         clientlen = sizeof(clientaddr);
-        connfd = Accept(listenfd, (SA *)&clientaddr, &clientlen);
+        connfdp = Malloc(sizeof(int));
+        *connfdp = Accept(listenfd, (SA *)&clientaddr, &clientlen);
         Getnameinfo((SA *) &clientaddr, clientlen, hostname, MAXLINE, 
                     port, MAXLINE, 0);
-        printf("Accepted connection from (%s, %s)\n", hostname, port);    
-        doit(connfd);
-        Close(connfd);
+        printf("Accepted connection from (%s, %s)\n", hostname, port);  
+        Pthread_create(&tid, NULL, thread, connfdp);  
+        // doit(connfd);
+        // Close(connfd);
     }
     return 0;
+}
+
+void *thread(void *vargp) 
+{
+    printf("in thread\n");
+    int connfd = *((int *) vargp);
+    printf("connfd %d\n", connfd);
+    Pthread_detach(pthread_self());
+    Free(vargp);
+    doit(connfd);
+    Close(connfd);
+    return NULL;
 }
 
 /*
@@ -108,22 +125,6 @@ void doit(int fd)
 
     to_server(fd, clientfd, request_line);
 
-    // if (is_static) { /* Serve static content */          
-    //     if (!(S_ISREG(sbuf.st_mode)) || !(S_IRUSR & sbuf.st_mode)) { 
-    //         clienterror(fd, filename, "403", "Forbidden",
-    //                     "Tiny couldn't read the file");
-    //         return;
-    //     }
-    //     serve_static(fd, filename, sbuf.st_size);        
-    // }
-    // else { /* Serve dynamic content */
-    //     if (!(S_ISREG(sbuf.st_mode)) || !(S_IXUSR & sbuf.st_mode)) { 
-    //         clienterror(fd, filename, "403", "Forbidden",
-    //                     "Tiny couldn't run the CGI program");
-    //         return;
-    //     }
-    //     serve_dynamic(fd, filename, cgiargs);           
-    // }
 }
 
 void to_server(int src_fd, int clientfd, char *headers) 
