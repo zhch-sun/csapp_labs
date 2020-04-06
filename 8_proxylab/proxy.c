@@ -18,7 +18,7 @@ void doit(int fd);
 void clienterror(int fd, char *cause, char *errnum, 
                  char *shortmsg, char *longmsg);
 void read_requesthdrs(rio_t *rp, char *host, char *headers);  
-void to_server(int clientfd, char *request_line);               
+void to_server(int srcfd, int clientfd, char *headers); 
 
 int main(int argc, char **argv)
 {
@@ -91,19 +91,22 @@ void doit(int fd)
     
     int len = strlen(version);
     version[len - 1] = '0';
-    sprintf(request_line, "%s %s %s", method, uri, version);
-    printf("request line: %s", request_line);
+    sprintf(request_line, "%s %s %s\n", method, uri, version);
     printf("%s\n", CNORMAL);   
 
     /* Parse request headers */
     read_requesthdrs(&rio, host, headers);
+    strcat(request_line, headers);
+    printf("%s", CRED);
     char *hostp = host + 6;  // exclude Host: 
     sscanf(hostp, "%[^: ]%*[: ]%s", host_name, host_port);
     printf("%s", hostp);
     printf("name: %s port: %s\n", host_name, host_port);
 
     int clientfd = open_clientfd(host_name, host_port);
-    to_server(clientfd, request_line);
+    printf("%s\n", CNORMAL);
+
+    to_server(fd, clientfd, request_line);
 
     // if (is_static) { /* Serve static content */          
     //     if (!(S_ISREG(sbuf.st_mode)) || !(S_IRUSR & sbuf.st_mode)) { 
@@ -123,20 +126,66 @@ void doit(int fd)
     // }
 }
 
-void to_server(int clientfd, char *request_line) 
+void to_server(int src_fd, int clientfd, char *headers) 
 {
     char buf[MAXLINE];
     rio_t rio;
     rio_t *rp = &rio;
 
-    Rio_readinitb(rp, clientfd);
-    Rio_writen(clientfd, request_line, strlen(request_line));
-    Rio_readlineb(rp, buf, MAXLINE);
-    printf("%s", buf);
+    printf("%s", CYELLOW);
+    // printf("start server\n");
+
+    Rio_readinitb(&rio, clientfd);
+    // printf("headers \n%s", headers);
+    Rio_writen(clientfd, headers, strlen(headers));
+
+    printf("write finished\n");
+    printf("%s\n", CNORMAL);   
+    
+    // read headers
+    int content_type = 0;
+    int content_length = 0;
+    char tmp1[MAXLINE], tmp2[MAXLINE];
+    Rio_readlineb(&rio, buf, MAXLINE);  
+    printf("%s", buf);  // HTTP/1.0 200 OK
+    Rio_writen(src_fd, buf, strlen(buf));
+
     while(strcmp(buf, "\r\n")) {
         Rio_readlineb(rp, buf, MAXLINE);
         printf("%s", buf);
+        if (strstr(buf, "length")) {
+            sscanf(buf, "%s %s", tmp1, tmp2);
+            content_length = atoi(tmp2);
+            printf("c len %s\n", tmp2);
+        }
+        else if (strstr(buf, "type"))
+        {
+            if (strstr(buf, "html"))
+                ;
+            else
+                content_type = 1;
+            printf("c type %d\n", content_type);
+        }
+        Rio_writen(src_fd, buf, strlen(buf));
     }
+
+    // read content
+    printf("%s", CYELLOW);
+    if (content_type == 0) {
+        int n;
+        while((n = Rio_readlineb(&rio, buf, MAXLINE)) != 0) {
+            Rio_writen(src_fd, buf, strlen(buf));
+        }
+    }
+    else {
+        printf("1111\n");
+        char *bbuf = (char *) malloc(content_length);
+        Rio_readn(clientfd, bbuf, content_length);
+        // printf("%s", bbuf);
+        Rio_writen(src_fd, bbuf, content_length);
+    }
+    printf("%s\n", CNORMAL);   
+    Close(clientfd);
 }
 
 /*

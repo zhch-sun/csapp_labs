@@ -26,11 +26,8 @@ PORT_MAX=65000
 MAX_PORT_TRIES=10
 
 # List of text and binary files for the basic test
-BASIC_LIST="home.html"
-            # csapp.c
-            # tiny.c
-            # godzilla.jpg
-            # tiny"
+BASIC_LIST="csapp.c"
+
 
 # List of text files for the cache test
 CACHE_LIST="tiny.c
@@ -238,13 +235,13 @@ do
     echo "${numRun}: ${file}"
     clear_dirs
 
-    # Fetch using the proxy
-    echo "   Fetching ./tiny/${file} into ${PROXY_DIR} using the proxy"
-    download_proxy $PROXY_DIR ${file} "http://localhost:${tiny_port}/${file}" "http://localhost:${proxy_port}"
-
     # Fetch directly from Tiny
     echo "   Fetching ./tiny/${file} into ${NOPROXY_DIR} directly from Tiny"
     download_noproxy $NOPROXY_DIR ${file} "http://localhost:${tiny_port}/${file}"
+
+    # Fetch using the proxy
+    echo "   Fetching ./tiny/${file} into ${PROXY_DIR} using the proxy"
+    download_proxy $PROXY_DIR ${file} "http://localhost:${tiny_port}/${file}" "http://localhost:${proxy_port}"
 
     # Compare the two files
     echo "   Comparing the two files"
