@@ -18,12 +18,58 @@ void doit(int fd);
 void clienterror(int fd, char *cause, char *errnum, 
                  char *shortmsg, char *longmsg);
 void read_requesthdrs(rio_t *rp, char *host, char *headers);  
-void to_server(int srcfd, int clientfd, char *headers); 
+void to_server(int srcfd, int clientfd, char *headers, char *uri); 
 void *thread(void *vargp);
+
+
+typedef struct CacheLine {
+    char name[MAXLINE];
+    char object[MAX_OBJECT_SIZE];
+} cacheLine_t;
+
+struct Cache {
+    int used_cnt;
+    cacheLine_t objects[10];
+} cache;
+
+int read_cnt = 0;
+sem_t mutex, w;
+
+int reader(int fd, char *uri) {
+    P(&mutex);
+    read_cnt++;
+    if (read_cnt == 1)
+        P(&w);
+    V(&mutex);
+
+    /* read start */
+    for (int i = 0; i < cache.used_cnt; i++) {
+        if (!strcmp(cache.objects[i].name, uri)) {
+            Rio_writen(fd, cache.objects[i].object, MAX_OBJECT_SIZE);
+            return 1;
+        }
+    }
+    /* read end */
+
+    P(&mutex);
+    read_cnt--;
+    if(read_cnt == 0)
+        V(&w);
+    V(&mutex);
+    return 0;
+}
+
+void writer(char *uri, char *buf) {
+    P(&w);
+    strncpy(cache.objects[cache.used_cnt].name, uri, strlen(uri));
+    strncpy(cache.objects[cache.used_cnt].object, buf, strlen(buf));
+    cache.used_cnt++;
+    V(&w);
+}
 
 int main(int argc, char **argv)
 {
-    int listenfd, connfd;
+    int listenfd;  // , connfd
     int *connfdp;
     char hostname[MAXLINE], port[MAXLINE];
     socklen_t clientlen;
@@ -35,7 +81,11 @@ int main(int argc, char **argv)
         fprintf(stderr, "usage: %s <port>\n", argv[0]);
         exit(1);
     }
-    // printf("%s", user_agent_hdr);
+
+    Sem_init(&mutex, 0, 1);
+    Sem_init(&w, 0, 1);
+    read_cnt = 0;
+
     listenfd = Open_listenfd(argv[1]);
     while (1) {
         clientlen = sizeof(clientaddr);
@@ -105,7 +155,8 @@ void doit(int fd)
         *host_e = '/';
         strncpy(uri, host_e, MAXLINE - 1);
     }
-    
+    if(reader(fd, uri) == 1)  // read cache
+        return;
     int len = strlen(version);
     version[len - 1] = '0';
     sprintf(request_line, "%s %s %s\n", method, uri, version);
@@ -123,15 +174,16 @@ void doit(int fd)
     int clientfd = open_clientfd(host_name, host_port);
     printf("%s\n", CNORMAL);
 
-    to_server(fd, clientfd, request_line);
-
+    to_server(fd, clientfd, request_line, uri);
 }
 
-void to_server(int src_fd, int clientfd, char *headers) 
+void to_server(int src_fd, int clientfd, char *headers, char *uri) 
 {
     char buf[MAXLINE];
     rio_t rio;
     rio_t *rp = &rio;
+    char object_cache[MAX_OBJECT_SIZE];
+    int object_size = 0;
 
     printf("%s", CYELLOW);
     // printf("start server\n");
@@ -150,6 +202,8 @@ void to_server(int src_fd, int clientfd, char *headers)
     Rio_readlineb(&rio, buf, MAXLINE);  
     printf("%s", buf);  // HTTP/1.0 200 OK
     Rio_writen(src_fd, buf, strlen(buf));
+    strncpy(object_cache, buf, strlen(buf));
+    object_size += strlen(buf);
 
     while(strcmp(buf, "\r\n")) {
         Rio_readlineb(rp, buf, MAXLINE);
@@ -168,14 +222,18 @@ void to_server(int src_fd, int clientfd, char *headers)
             printf("c type %d\n", content_type);
         }
         Rio_writen(src_fd, buf, strlen(buf));
+        strncpy(object_cache + object_size, buf, strlen(buf));
+        object_size += strlen(buf);
     }
 
     // read content
     printf("%s", CYELLOW);
-    if (content_type == 0) {
+    if (content_type == 0) {  // text
         int n;
         while((n = Rio_readlineb(&rio, buf, MAXLINE)) != 0) {
             Rio_writen(src_fd, buf, strlen(buf));
+            strncpy(object_cache + object_size, buf, strlen(buf));
+            object_size += strlen(buf);
         }
     }
     else {
@@ -184,9 +242,14 @@ void to_server(int src_fd, int clientfd, char *headers)
         Rio_readn(clientfd, bbuf, content_length);
         // printf("%s", bbuf);
         Rio_writen(src_fd, bbuf, content_length);
+        strncpy(object_cache + object_size, buf, strlen(buf));
+        object_size += strlen(buf);
     }
     printf("%s\n", CNORMAL);   
     Close(clientfd);
+    if (object_size < MAX_OBJECT_SIZE) {
+        writer(uri, object_cache);
+    }
 }
 
 /*
